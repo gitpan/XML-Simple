@@ -107,8 +107,8 @@ sub DataCompare {
 
 eval "use XML::Simple;";
 ok(1, !$@);                       # Module compiled OK
-unless($XML::Simple::VERSION eq '1.05') {
-  print STDERR "Warning: XML::Simple::VERSION = $XML::Simple::VERSION (expected 1.05)...";
+unless($XML::Simple::VERSION eq '1.06') {
+  print STDERR "Warning: XML::Simple::VERSION = $XML::Simple::VERSION (expected 1.06)...";
 }
 
 

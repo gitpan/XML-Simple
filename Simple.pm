@@ -2,7 +2,7 @@ package XML::Simple;
 
 =head1 NAME
 
-XML::Simple - Trivial API for reading and writing XML (esp config files)
+XML::Simple - Easy API to read/write XML (esp config files)
 
 =head1 SYNOPSIS
 
@@ -42,7 +42,7 @@ use vars qw($VERSION @ISA @EXPORT);
 
 @ISA               = qw(Exporter);
 @EXPORT            = qw(XMLin XMLout);
-$VERSION           = '1.05';
+$VERSION           = '1.06';
 
 my %CacheScheme    = (
                        storable => [ \&StorableSave, \&StorableRestore ],
@@ -58,7 +58,7 @@ my @KnownOptOut    = qw(keyattr keeproot contentkey noattr
 my @DefKeyAttr     = qw(name key id);
 my $DefRootName    = qq(opt);
 my $DefContentKey  = qq(content);
-my $DefXmlDecl     = qq(<?xml version='1' standalone='yes'?>);
+my $DefXmlDecl     = qq(<?xml version='1.0' standalone='yes'?>);
 
 
 ##############################################################################
@@ -1553,7 +1553,7 @@ to XML.
 If you want the output from C<XMLout()> to start with the optional XML
 declaration, simply set the option to '1'.  The default XML declaration is:
 
-        <?xml version='1' standalone='yes'?>
+        <?xml version='1.0' standalone='yes'?>
 
 If you want some other string (for example to declare an encoding value), set
 the value of this option to the complete string you require.
@@ -1899,7 +1899,7 @@ http://www.perlxml.com/faq/perl-xml-faq.html
 
 =head1 STATUS
 
-This version (1.05) is the current stable version.  
+This version (1.06) is the current stable version.  
 
 =head1 SEE ALSO
 
@@ -1908,7 +1908,7 @@ functions require B<Storable>.
 
 =head1 COPYRIGHT 
 
-Copyright 1999 Grant McLean E<lt>grantm@web.co.nzE<gt>
+Copyright 1999-2001 Grant McLean E<lt>grantm@cpan.orgE<gt>
 
 This library is free software; you can redistribute it and/or modify it
 under the same terms as Perl itself. 

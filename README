@@ -1,16 +1,14 @@
 DESCRIPTION
 
-  XML::Simple - Trivial API for reading and writing XML (esp config files)
+  XML::Simple - Easy API to read/write XML (esp config files)
 
 
 PREREQUISITES
 
-  XML::Simple requires XML::Parser
-  The optional caching features of XML::Simple also require Storable.pm
+  XML::Simple requires XML::Parser (if you're running ActivePerl, you'll
+  already have this installed).
 
-  Win32 users may be interested to discover that XML::Parser is shipped
-  with the base install of ActivePerl from ActiveState Corp.  Storable.pm
-  can be installed using the PPM utility.
+  The optional caching features of XML::Simple also require Storable.pm.
 
 
 BUILDING/INSTALLING
@@ -32,41 +30,23 @@ BUILDING/INSTALLING
 
 STATUS
 
-  This version (1.05) is the current stable release.  This version is
+  This version (1.06) is the current stable release.  This version is
   believed to be thread-safe.
 
-  Please send any feedback to the author: grantm@web.co.nz
+  Please send any feedback to the author: grantm@cpan.org
 
 
 NEW IN THIS RELEASE
 
-  - code re-org to make internals all OO for easier extending
-  - added 'noattr' option to tell XMLout() not to use attributes (only
-    nested elements) and XMLin() to discard attributes
-  - added 'suppressempty' option to tell XMLin what to do with elements
-    with no attributes and no content
-  - added 'parseropts' option for specifying options which should be
-    passed to the underlying XML::Parser object
-  - added 'forcecontent' option to force text content to parse to a
-    hash value even if the element has no attributes
-  - fix for forcearray getting applied to text content
-  - integrated patch from Paul Lindner to work around filenames sometimes
-    being seen as XML when running under mod_perl
-  - integrated patch from Edward Avis: filename '-' means stdin
-  - fixed bug where a missing key attribute could cause a crash
-  - added a warning message for above situation
-  - added 'support' for CDATA sections - they always worked, but now
-    they're in the test suite which should ensure they keep working
-  - fixed error message when caching enabled but parsing from filehandle
-  - fixed empty elements being skipped by XMLout() when folding enabled
-  - fixed text content of '0' being skipped by XMLout()
+  - minor change to fix version number in default xmldecl (from '1' to '1.0')
+  - updated contact email address for author
 
   See 'Changes' for a detailed history.
 
 
 COPYRIGHT
 
-  Copyright 1999 Grant McLean <grantm@web.co.nz>
+  Copyright 1999-2001 Grant McLean <grantm@cpan.org>
 
   This library is free software; you can redistribute it
   and/or modify it under the same terms as Perl itself.

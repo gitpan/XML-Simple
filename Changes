@@ -1,4 +1,10 @@
-Revision history for Perl extension XML::Simple
+Revision history for Perl module XML::Simple
+
+1.06  Nov 19 2001
+	- fixed version number in default xmldecl (thanks to Matt Sergeant for
+	  bug report and patch)
+	- updated contact email address for author
+
 
 1.05  Aug 31 2000
 	- code re-org to make internals all OO for easier extending
