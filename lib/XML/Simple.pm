@@ -1,4 +1,4 @@
-# $Id: Simple.pm,v 1.6 2002/12/08 02:37:40 grantm Exp $
+# $Id: Simple.pm,v 1.8 2002/12/11 01:50:19 grantm Exp $
 
 package XML::Simple;
 
@@ -52,7 +52,7 @@ use vars qw($VERSION @ISA @EXPORT $PREFERRED_PARSER);
 
 @ISA               = qw(Exporter);
 @EXPORT            = qw(XMLin XMLout);
-$VERSION           = '2.00';
+$VERSION           = '2.01';
 $PREFERRED_PARSER  = undef;
 
 my $StrictMode     = 0;
@@ -668,7 +668,7 @@ sub handle_options  {
     }
   }
   else {
-    if($StrictMode) {
+    if($StrictMode  and  $dirn eq 'in') {
       croak "No value specified for 'forcearray' option in call to XML$dirn()";
     }
     $opt->{forcearray} = 0;
@@ -2416,7 +2416,7 @@ XPath support.
 
 =head1 STATUS
 
-This version (2.00) is the current stable version.
+This version (2.01) is the current stable version.
 
 =head1 SEE ALSO
 
