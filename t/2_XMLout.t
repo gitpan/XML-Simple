@@ -1,4 +1,4 @@
-# $Id: 2_XMLout.t,v 1.8 2003/05/18 08:42:30 grantm Exp $
+# $Id: 2_XMLout.t,v 1.9 2003/09/09 09:35:52 grantm Exp $
 # vim: syntax=perl
 
 use strict;
@@ -326,8 +326,11 @@ $_ = eval {
 ok(defined($_), 'repetitive (non-circular) data structure not fatal');
 like($_, qr{^
 <opt>
-  \s*<a\s+alpha="1"\s*/>
-  \s*<b\s+alpha="1"\s*/>
+  (
+    \s*<a\s+alpha="1"\s*/>
+  |
+    \s*<b\s+alpha="1"\s*/>
+  ){2}
 \s*</opt>
 }xs, 'and encodes as expected');
 
