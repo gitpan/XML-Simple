@@ -1,0 +1,1301 @@
+package XML::Simple;
+
+=head1 NAME
+
+XML::Simple - Trivial API for reading and writing XML, optimised for use with
+config files in XML format
+
+=head1 SYNOPSIS
+
+    use XML::Simple;
+
+    my $ref = XMLin([<xml file or string>] [, <options>]);
+
+    my $xml = XMLout($hashref [, <options>]);
+
+=cut
+
+# See after __END__ for more POD documentation
+
+
+# Load essentials here, other modules loaded on demand later
+
+use strict;
+use Carp;
+require Exporter;
+
+
+##############################################################################
+# Define some constants
+#
+
+use vars qw($VERSION @ISA @EXPORT);
+
+@ISA               = qw(Exporter);
+@EXPORT            = qw(XMLin XMLout);
+$VERSION           = '1.00';
+
+my %CacheScheme    = (
+                       storable => [ \&StorableSave, \&StorableRestore ],
+                       memshare => [ \&MemShareSave, \&MemShareRestore ],
+                       memcopy  => [ \&MemCopySave,  \&MemCopyRestore  ]
+		     );
+
+my $DefaultValues  = 1;  # Used for locking only
+my @KnownOptIn     = qw(keyattr searchpath forcearray cache);
+my @KnownOptOut    = qw(keyattr rootname xmldecl outputfile noescape);
+my @DefKeyAttr     = qw(name key id);
+my $DefRootName    = qq(opt);
+my $DefXmlDecl     = qq(<?xml version='1' standalone='yes'?>);
+
+
+##############################################################################
+# Globals for use by caching routines (access protected by locks)
+#
+
+my %MemShareCache  = ();
+my %MemCopyCache   = ();
+
+
+##############################################################################
+# Dummy 'lock' routine for non-threaded versions of Perl
+# (Code courtesy Dan Sugalski TPJ#15)
+#
+
+BEGIN {
+  sub fakelock {};
+  if($] < 5.005) {
+    *lock = \&fakelock;
+  }
+}
+
+
+##############################################################################
+# Sub: XMLin()
+#
+# Exported routine for slurping XML into a hashref - see pod for info.
+# Expects one arg for the source XML, optionally followed by a number of
+# name => value option pairs.
+#
+
+sub XMLin {
+
+  my $String = shift;
+  my $Options = HandleOptions('in', @_);
+
+  # If no XML or filename supplied, look for scriptname.xml in script directory
+
+  unless(defined($String))  {
+    $String = $0;
+    $String =~ s/\\/\//g;
+
+    my($Path, $Base) = ($String =~ m{^(.*/)?([^/]*)});
+    $Base =~ s/\.[^\.\/]*$//;          # String extension if there was one
+
+    $String = $Base . '.xml';
+    if($Path) {
+      unshift(@{$Options->{searchpath}}, $Path);
+    }
+    else {
+      unshift(@{$Options->{searchpath}}, '.');
+    }
+  }
+  
+
+  # Are we parsing from a file?  If so, is there a valid cache available?
+
+  my($Filename, $Scheme);
+  unless($String =~ /<.*?>/s  ||  ref($String) =~ /IO::/) {
+    $Filename = FindXMLFile($String, @{$Options->{searchpath}});
+
+    if($Options->{cache}) {
+      lock %CacheScheme;
+      foreach $Scheme (@{$Options->{cache}}) {
+	croak "Unsupported caching scheme: $Scheme"
+	  unless($CacheScheme{$Scheme});
+
+	my $opt = $CacheScheme{$Scheme}->[1]->($Filename);
+	return($opt) if($opt);
+      }
+    }
+  }
+
+
+  # Parsing is required, so let's get on with it
+
+  eval { require XML::Parser };     # We didn't need it until now
+
+  my $xp = new XML::Parser(Style => 'Tree');
+  my $tree;
+  if($Filename) {
+    $tree = $xp->parsefile($Filename);
+  }
+  else {
+    $tree = $xp->parse($String);
+  }
+
+  my $opt = Collapse($Options, @{$tree->[1]});
+
+  if($Options->{cache}) {
+    $CacheScheme{$Options->{cache}->[0]}->[0]->($opt, $Filename);
+  }
+
+  return($opt);
+}
+
+
+##############################################################################
+# Sub: StorableSave()
+#
+# Wrapper routine for invoking Storable::nstore() to cache a parsed data
+# structure.
+#
+
+sub StorableSave {
+  my($Data, $Filename) = @_;
+
+  my $CacheFile = $Filename;
+  $CacheFile =~ s/(\.xml)?$/.stor/;
+
+  unless($INC{'Storable.pm'}) {
+    eval { require Storable; };          # We didn't need it until now
+    croak($@) if($@);
+  }
+  
+  Storable::nstore($Data, $CacheFile);
+  
+}
+
+
+##############################################################################
+# Sub: StorableRestore()
+#
+# Wrapper routine for invoking Storable::retrieve() to read a cached parsed
+# data structure.  Only returns cached data if the cache file exists and is
+# newer than the source XML file.
+#
+
+sub StorableRestore {
+  my($Filename) = @_;
+  
+  my $CacheFile = $Filename;
+  $CacheFile =~ s/(\.xml)?$/.stor/;
+
+  return unless(-r $CacheFile);
+  return unless((stat($CacheFile))[9] > (stat($Filename))[9]);
+
+  unless($INC{'Storable.pm'}) {
+    eval { require Storable; };          # We didn't need it until now
+    croak($@) if($@);
+  }
+  
+  return(Storable::retrieve($CacheFile));
+  
+}
+
+
+##############################################################################
+# Sub: MemShareSave()
+#
+# Takes the supplied data structure and stores it away in a global hash
+# structure.
+#
+
+sub MemShareSave {
+  my($Data, $Filename) = @_;
+
+  lock %MemShareCache;
+  $MemShareCache{$Filename} = [time(), $Data];
+}
+
+
+##############################################################################
+# Sub: MemShareRestore()
+#
+# Takes a filename and looks in a global hash for a cached parsed version.
+#
+
+sub MemShareRestore {
+  my($Filename) = @_;
+  
+  lock %MemShareCache;
+  return unless($MemShareCache{$Filename});
+  return unless($MemShareCache{$Filename}->[0] > (stat($Filename))[9]);
+
+  return($MemShareCache{$Filename}->[1]);
+  
+}
+
+
+##############################################################################
+# Sub: MemCopySave()
+#
+# Takes the supplied data structure and stores a copy of it in a global hash
+# structure.
+#
+
+sub MemCopySave {
+  my($Data, $Filename) = @_;
+
+  lock %MemCopyCache;
+  unless($INC{'Storable.pm'}) {
+    eval { require Storable; };          # We didn't need it until now
+    croak($@) if($@);
+  }
+  
+  $MemCopyCache{$Filename} = [time(), Storable::dclone($Data)];
+}
+
+
+##############################################################################
+# Sub: MemCopyRestore()
+#
+# Takes a filename and looks in a global hash for a cached parsed version.
+# Returns a reference to a copy of that data structure.
+#
+
+sub MemCopyRestore {
+  my($Filename) = @_;
+  
+  lock %MemCopyCache;
+  return unless($MemCopyCache{$Filename});
+  return unless($MemCopyCache{$Filename}->[0] > (stat($Filename))[9]);
+
+  return(Storable::dclone($MemCopyCache{$Filename}->[1]));
+  
+}
+
+
+##############################################################################
+# Sub: XMLout()
+#
+# Exported routine for 'unslurping' a data structure out to XML.
+#
+
+sub XMLout {
+  my $ref = shift;
+
+  my $Options = HandleOptions('out', @_);
+
+
+  # Wrap top level arrayref in a hash
+
+  if(ref($ref) eq 'ARRAY') {
+    $ref = { anon => $ref };
+  }
+
+
+  # Make sure no top level attributes if no root elements
+
+  elsif($Options->{rootname} eq '') {
+    if(ref($ref) eq 'HASH') {
+      my $refsave = $ref;
+      $ref = {};
+      foreach (keys(%$refsave)) {
+	if(ref($refsave->{$_})) {
+	  $ref->{$_} = $refsave->{$_};
+	}
+	else {
+	  $ref->{$_} = [ $refsave->{$_} ];
+	}
+      }
+    }
+  }
+
+
+  # Encode the hashref and write to file if necessary
+
+  my $xml = ValueToXML($Options, $ref, $Options->{rootname}, {}, '');
+  if($Options->{xmldecl}) {
+    $xml = $Options->{xmldecl} . "\n" . $xml;
+  }
+
+  if($Options->{outputfile}) {
+    if(ref($Options->{outputfile})) {
+      return($Options->{outputfile}->print($xml));
+    }
+    else {
+      open(_XML_SIMPLE_OUT_, ">$Options->{outputfile}") ||
+        croak "open($Options->{outputfile}): $!";
+      print _XML_SIMPLE_OUT_ $xml || croak "print: $!";
+      close(_XML_SIMPLE_OUT_);
+    }
+  }
+  else {
+    return($xml);
+  }
+}
+
+
+##############################################################################
+# Sub: HandleOptions()
+#
+# Helper routine for both XMLin() and XMLout().  Both routines handle their
+# first argument and assume all other args are options handled by this
+# routine.  Returns a reference to a hash of options.
+#
+# This routine expects args to be name => value pairs.  Sets up default
+# values for options not supplied.  Unrecognised options are a fatal error.
+#
+# Options are not intended to be 'sticky' between calls and nothing should
+# be shared between threads.
+#
+
+sub HandleOptions  {
+
+  lock $DefaultValues;
+
+
+  # Determine valid options based on context
+
+  my %KnownOpt; 
+  my $Dirn = shift;
+  if($Dirn eq 'in') {
+    @KnownOpt{@KnownOptIn} = @KnownOptIn;
+  }
+  else {
+    @KnownOpt{@KnownOptOut} = @KnownOptOut;
+  }
+
+
+  # Store supplied options in hashref and weed out invalid ones
+
+  if(@_ % 2) {
+    croak "Options must be name => value pairs (odd number supplied)";
+  }
+  my $Options = { @_ };
+
+  foreach (keys(%$Options)) {
+    croak "Unrecognised option: $_"
+      unless($KnownOpt{$_});
+  }
+
+
+  # Set sensible defaults if not supplied
+  
+  if(exists($Options->{rootname})) {
+    unless(defined($Options->{rootname})) {
+      $Options->{rootname} = '';
+    }
+  }
+  else {
+    $Options->{rootname} = $DefRootName;
+  }
+  
+  if($Options->{xmldecl}  and  $Options->{xmldecl} eq '1') {
+    $Options->{xmldecl} = $DefXmlDecl;
+  }
+
+  # Cleanups for values assumed to be arrays later
+
+  if(exists($Options->{keyattr}))  {
+    unless(ref($Options->{keyattr})) {
+      $Options->{keyattr} = [ $Options->{keyattr} ];
+    }
+  }
+  else  {
+    $Options->{keyattr} = [ @DefKeyAttr ];
+  }
+
+  if($Options->{searchpath}) {
+    unless(ref($Options->{searchpath})) {
+      $Options->{searchpath} = [ $Options->{searchpath} ];
+    }
+  }
+  else  {
+    $Options->{searchpath} = [ ];
+  }
+
+  if($Options->{cache}  and !ref($Options->{cache})) {
+    $Options->{cache} = [ $Options->{cache} ];
+  }
+  
+  return($Options);
+}
+
+
+##############################################################################
+# Sub: FindXMLFile()
+#
+# Helper routine for XMLin().
+# Takes a filename, and a list of directories, attempts to locate the file in
+# the directories listed.
+# Returns a full pathname on success; croaks on failure.
+#
+
+sub FindXMLFile  {
+  my $File = shift;
+  my @SearchPath = @_;
+
+  $File =~ s/\\/\//g;                 # Chg \ to /
+  if($File =~ /\//) {                 # Ignore searchpath if dir component
+    return($File) if(-e $File);
+  }
+  else {
+    my($Path);
+    foreach $Path (@SearchPath)  {
+      return("$Path/$File") if(-e "$Path/$File");
+    }
+  }
+
+  croak "Could not find $File in ", join(':', @SearchPath);
+}
+
+
+##############################################################################
+# Sub: Collapse()
+#
+# Helper routine for XMLin().
+# Takes the parse tree that XML::Parser produced from the suppiled XML and
+# recurses through it, transforming it in various ways that make it more
+# convenient to work with (yes that *was* a vague 'specification').
+# This routine really comprises the 'smarts' (or value add) of this module.
+#
+
+sub Collapse {
+
+  my $Options = shift;
+
+
+  # Start with the hash of attributes
+  
+  my $attr  = shift;
+
+
+  # Add any nested elements
+
+  my($key, $val);
+  while(@_) {
+    $key = shift;
+    $val = shift;
+
+    if(ref($val)) {
+      $val = Collapse($Options, @$val);
+    }
+    elsif($key eq '0') {
+      next if($val =~ /^\s*$/s);
+      if(!%$attr  and  !@_) {  # Short circuit text content in tag with no attr
+        return($val);
+      }
+      $key = 'content';
+    }
+
+
+    # Combine duplicate attributes into arrayref if required
+
+    if(exists($attr->{$key})) {
+      if(ref($attr->{$key}) eq 'ARRAY') {
+        push(@{$attr->{$key}}, $val);
+      }
+      else {
+        $attr->{$key} = [ $attr->{$key}, $val ];
+      }
+    }
+    elsif(ref($val) eq 'ARRAY') {  # Handle anonymous arrays
+      $attr->{$key} = [ $val ];
+    }
+    else {
+      $attr->{$key} = ($Options->{forcearray} ? [ $val ] : $val);
+    }
+  }
+
+
+  # Turn arrayrefs into hashrefs if key fields present
+
+  my $count = 0;
+  while(($key,$val) = each %$attr) {
+    if(ref($val) eq 'ARRAY') {
+      $attr->{$key} = ArrayToHash($Options, $val);
+    }
+    $count++;
+  }
+
+
+  # Fold hashes containing a single anonymous array up into just the array
+
+  if($count == 1  and  ref($attr->{anon}) eq 'ARRAY') {
+    return($attr->{anon});
+  }
+
+  return($attr)
+}
+
+
+##############################################################################
+# Sub: ArrayToHash()
+#
+# Helper routine for Collapse().
+# Attempts to 'fold' an array of hashes into an hash of hashes.  Returns a
+# reference to the hash on success or the original array if folding is
+# not possible.  Behaviour is influenced by 'keyattr' option.
+#
+
+sub ArrayToHash {
+
+  my $Options  = shift;
+  my $ArrayRef = shift;
+
+  my $HashRef  = {};
+
+  my($i, $key, $val);
+  ELEMENT: for($i = 0; $i < @$ArrayRef; $i++)  {
+    return($ArrayRef) unless(ref($ArrayRef->[$i]) eq 'HASH');
+
+    foreach $key (@{$Options->{keyattr}}) {
+      if(defined($ArrayRef->[$i]->{$key}))  {
+        $val = $ArrayRef->[$i]->{$key};
+        $HashRef->{$val} = { %{$ArrayRef->[$i]} };
+        delete $HashRef->{$val}->{$key};
+        next ELEMENT;
+      }
+    }
+
+    return($ArrayRef);    # No keyfield matched
+  }
+
+  return($HashRef);
+}
+
+
+##############################################################################
+# Sub: ValueToXML()
+#
+# Helper routine for XMLout() - recurses through a data structure building up
+# and returning an XML representation of that structure as a string.
+# 
+# Arguments expected are:
+# - a hashref of option settings (args to XMLin() merged with defaults)
+# - the data structure to be encoded (usually a reference)
+# - the XML tag name to use for this item
+# - a hashref of references already encoded (to detect recursive structures)
+# - a string of spaces for use as the current indent level
+#
+
+sub ValueToXML {
+  my($Options, $ref, $name, $encoded, $indent) = @_;
+
+  my $named = (defined($name) and $name ne '' ? 1 : 0);
+
+  if(ref($ref)) {
+    croak "recursive data structures not supported" if($encoded->{$ref});
+    $encoded->{$ref} = 1;
+  }
+  else {
+    if($named) {
+      return(join('',
+              $indent, '<', $name, '>',
+	      ($Options->{noescape} ? $ref : EscapeValue($ref)),
+              '</', $name, ">\n"
+	    ));
+    }
+    else {
+      return("$ref\n");
+    }
+  }
+
+  # Unfold hash to array if possible (skip for root elements)
+
+  if(ref($ref) eq 'HASH' and @{$Options->{keyattr}} and $indent) {
+    $ref = HashToArray($Options, $ref);
+  }
+
+  my @result = ();
+  my($key, $value);
+
+  if(ref($ref) eq 'HASH') {
+    my @nested = ();
+    if($named) {
+      push @result, $indent, '<', $name;
+    }
+
+    while(($key, $value) = each(%$ref)) {
+      if(!ref($value)) {
+	push @result, ' ', $key, '="', 
+	($Options->{noescape} ? $value : EscapeValue($value)), '"';
+      }
+      else {
+	push @nested, ValueToXML($Options, $value, $key, $encoded, "$indent  ");
+      }
+    }
+
+    if(@nested) {
+      if($named) {
+        push @result, ">\n", @nested, $indent, '</', $name, ">\n";
+      }
+      else {
+        push @result, @nested;
+      }
+    }
+    else {
+      push @result, " />\n";
+    }
+  }
+
+  elsif(ref($ref) eq 'ARRAY') {
+    foreach $value (@$ref) {
+      if(!ref($value)) {
+        push @result,
+               $indent, '<', $name, '>',
+	       ($Options->{noescape} ? $value : EscapeValue($value)),
+               '</', $name, ">\n";
+      }
+      elsif(ref($value) eq 'HASH') {
+	push @result, ValueToXML($Options, $value, $name, $encoded, $indent);
+      }
+      else {
+	push @result,
+	       $indent, '<', $name, ">\n",
+	       ValueToXML($Options, $value, 'anon', $encoded, "$indent  "),
+	       $indent, '</', $name, ">\n";
+      }
+    }
+  }
+
+  else {
+    croak "Can't encode a value of type: " . ref($ref);
+  }
+
+  return(join('', @result));
+}
+
+
+##############################################################################
+# Sub: EscapeValue()
+#
+# Helper routine for automatically escaping values for XMLout().
+# Expects a scalar data value.  Returns escaped version.
+#
+
+sub EscapeValue {
+  my($data) = @_;
+
+  $data =~ s/&/&amp;/sg;
+  $data =~ s/</&lt;/sg;
+  $data =~ s/>/&gt;/sg;
+  $data =~ s/"/&quot;/sg;
+
+  return($data);
+}
+
+
+##############################################################################
+# Sub: HashToArray()
+#
+# Helper routine for ValueToXML().
+# Attempts to 'unfold' a hash of hashes into an array of hashes.  Returns a
+# reference to the array on success or the original hash if unfolding is
+# not possible.
+#
+
+sub HashToArray {
+  my $Options = shift;
+  my $HashRef = shift;
+
+  my $ArrayRef = [];
+
+  my($key, $value);
+  my $count = 0;
+
+  foreach $key (keys(%$HashRef)) {
+    $value = $HashRef->{$key};
+    return($HashRef) unless(ref($value) eq 'HASH');
+
+    push(@$ArrayRef, { $Options->{keyattr}->[0] => $key, %$value });
+    $count++;
+  }
+
+  if($count > 1) {
+    return($ArrayRef);
+  }
+  else {
+    return($HashRef);
+  }
+}
+
+1;
+
+__END__
+
+=head1 QUICK START
+
+Say you have a script called B<foo> and a file of configuration options
+called B<foo.xml> containing this:
+
+  <config logdir="/var/log/foo/" debugfile="/tmp/foo.debug">
+    <server name="sahara" osname="solaris" osversion="2.6">
+      <address>10.0.0.101</address>
+      <address>10.0.1.101</address>
+    </server>
+    <server name="gobi" osname="irix" osversion="6.5">
+      <address>10.0.0.102</address>
+    </server>
+    <server name="kalahari" osname="linux" osversion="2.0.34">
+      <address>10.0.0.103</address>
+      <address>10.0.1.103</address>
+    </server>
+  </config>
+
+The following lines of code in B<foo>:
+
+  use XML::Simple;
+
+  my $config = XMLin();
+
+will 'slurp' the configuration options into the hashref $config (because no
+arguments are passed to C<XMLin()> the name and location of the XML file will
+be inferred from name and location of the script).  You can dump out the
+contents of the hashref using Data::Dumper:
+
+  use Data::Dumper;
+
+  print Dumper($config);
+
+which will produce something like this (formatting has been adjusted for
+brevity):
+
+  {
+      'logdir'        => '/var/log/foo/',
+      'debugfile'     => '/tmp/foo.debug',
+      'server'        => {
+	  'sahara'        => {
+	      'osversion'     => '2.6',
+	      'osname'        => 'solaris',
+	      'address'       => [ '10.0.0.101', '10.0.1.101' ]
+	  },
+	  'gobi'          => {
+	      'osversion'     => '6.5',
+	      'osname'        => 'irix',
+	      'address'       => '10.0.0.102'
+	  },
+	  'kalahari'      => {
+	      'osversion'     => '2.0.34',
+	      'osname'        => 'linux',
+	      'address'       => [ '10.0.0.103', '10.0.1.103' ]
+	  }
+      }
+  }
+
+Your script could then access the name of the log directory like this:
+
+  print $config->{logdir};
+
+similarly, the second address on the server 'kalahari' could be referenced as:
+
+  print $config->{server}->{kalahari}->{address}->[1];
+
+What could be simpler (rhetorical)?
+
+For simple requirements, that's really all there is to it.  If you want to
+store your XML in a different directory or file, or pass it in as a string or
+even pass it in via some derivative of an IO::Handle, you'll need to check out
+L<"OPTIONS">.  If you want to turn off or tweak the array folding feature (that
+neat little transformation that produced $config->{server}) you'll find options
+for that as well.
+
+If you want to generate XML (for example to write a modified version of
+$config back out as XML), check out C<XMLout()>.
+
+If your needs are not so simple, this may not be the module for you.  In that
+case, you might want to read L<"WHERE TO FROM HERE?">.
+
+=head1 DESCRIPTION
+
+The XML::Simple module provides a simple API layer on top of the XML::Parser
+module.  Two functions are exported: C<XMLin()> and C<XMLout()>.
+
+=head2 XMLin()
+
+Parses XML formatted data and returns a reference to a data structure which
+contains the same information in a more readily accessible form.  (Skip
+down to L<"EXAMPLES"> below, for more sample code).
+
+C<XMLin()> accepts an optional XML specifier followed by zero or more 'name =>
+value' option pairs.  The XML specifier will be treated as follows:
+
+=over 4
+
+=item 1.
+
+An undefined value will cause C<XMLin()> to check the script directory and each
+of the searchpath directories (see L<"OPTIONS"> below) for a file with the same
+name as the script but with the extension '.xml'
+
+=item 2.
+
+A string containing XML (recognised by the presence of '<' and '>' characters)
+will be parsed directly
+
+=item 3.
+
+An IO::Handle object will be read to EOF and its contents parsed
+
+=item 4.
+
+Any other defined string is assumed to contain the name of an XML file which is
+read and parsed.  If the filename contains no directory components
+C<XMLin()> will look for the file in each directory in the searchpath
+
+=back
+
+=head2 XMLout()
+
+Takes a data structure (generally a hashref) and returns an XML encoding of
+that structure.  If the resulting XML is parsed using C<XMLin()>, it will
+return a data structure equivalent to the original. 
+
+=head2 Caveats
+
+Some care is required in creating data structures which will be passed to
+C<XMLout()>.  Hash keys from the data structure will be encoded as either XML
+element names or attribute names.  Therefore, you should use hash key names 
+which conform to the relatively strict XML naming rules:
+
+Names in XML must begin with a letter.  The remaining characters may be
+letters, digits, hyphens (-), underscores (_) or full stops (.).  It is also
+allowable to include one colon (:) in an element name but this should only be
+used when working with namespaces - a facility well beyond the scope of
+B<XML::Simple>.
+
+You can use other punctuation characters in hash values (just not in hash
+keys) however B<XML::Simple> does not support dumping binary data.
+
+If you break these rules, the current implementation of C<XMLout()> will 
+simply emit non-compliant XML which will be rejected if you try to read it
+back in.  (A later version of B<XML::Simple> might take a more proactive
+approach).
+
+Note also that although you can nest hashes and arrays to arbitrary levels,
+recursive data structures are not supported and will cause C<XMLout()> to die.
+
+Refer to L<"WHERE TO FROM HERE?"> if C<XMLout()> is too simple for your needs.
+
+
+=head1 OPTIONS
+
+Both C<XMLin()> and C<XMLout()> accept optional 'name => value' pairs after the
+initial parameter.  The options listed below are marked with 'B<in>' if they
+are recognised by C<XMLin()> and 'B<out>' if they are recognised by
+C<XMLout()>.
+
+=over 4
+
+=item keyattr => [ list ] (B<in+out>)
+
+This option controls the 'array folding' feature which translates nested
+elements from an array to a hash.  For example, this XML:
+
+    <opt>
+      <user login="grep" fullname="Gary R Epstein" />
+      <user login="stty" fullname="Simon T Tyson" />
+    </opt>
+
+would, by default, parse to this:
+
+    {
+      'user' => [
+		  {
+		    'login' => 'grep',
+		    'fullname' => 'Gary R Epstein'
+		  },
+		  {
+		    'login' => 'stty',
+		    'fullname' => 'Simon T Tyson'
+		  }
+		]
+    }
+
+If the option 'keyattr => "login"' were used to specify that the 'login'
+attribute is a key, the same XML would parse to:
+
+    {
+      'user' => {
+		  'stty' => {
+			      'fullname' => 'Simon T Tyson'
+			    },
+		  'grep' => {
+			      'fullname' => 'Gary R Epstein'
+			    }
+		}
+    }
+
+The key attribute names should be supplied in an arrayref if there is more
+than one.  C<XMLin()> will attempt to match attribute names in the order
+supplied.  C<XMLout()> will use the first attribute name supplied when
+'unfolding' a hash into an array.
+
+The default value for 'keyattr' is ['name', 'key', 'id'].  Setting this option
+to an empty list will disable the array folding feature.
+
+=item searchpath => [ list ] (B<in>)
+
+Where the XML is being read from a file, and no path to the file is specified,
+this attribute allows you to specify which directories should be searched.
+
+If the first parameter to C<XMLin()> is undefined, the default searchpath
+will contain only the directory in which the script itself is located.
+Otherwise the default searchpath will be empty.  
+
+Note: the current directory ('.') is B<not> searched unless it is the directory
+containing the script.
+
+=item forcearray => 1 (B<in>)
+
+This option should be set to '1' to force nested elements to be represented
+as arrays even when there is only one.  Eg, with forcearray enabled, this
+XML:
+
+    <opt>
+      <name>value</name>
+    </opt>
+
+would parse to this:
+
+    {
+      'name' => [
+		  'value'
+		]
+    }
+
+instead of this (the default):
+
+    {
+      'name' => 'value'
+    }
+
+This option is especially useful if the data structure is likely to be written
+back out as XML and the default behaviour of rolling single nested elements up
+into attributes is not desirable.
+
+=item cache => [ cache scheme(s) ] (B<in>)
+
+Because loading the B<XML::Parser> module and parsing an XML file can consume a
+significant number of CPU cycles, it is often desirable to cache the output of
+C<XMLin()> for later reuse.
+
+When parsing from a named file, B<XML::Simple> supports a number of caching
+schemes.  The 'cache' option may be used to specify one or more schemes (using
+an anonymous array).  Each scheme will be tried in turn in the hope of finding
+a cached pre-parsed representation of the XML file.  If no cached copy is
+found, the file will be parsed and the first cache scheme in the list will be
+used to save a copy of the results.  The following cache schemes have been
+implemented:
+
+=over 4
+
+=item storable
+
+Utilises B<Storable.pm> to read/write a cache file with the same name as the
+XML file but with the extension .stor
+
+=item memshare
+
+When a file is first parsed, a copy of the resulting data structure is retained
+in memory in the B<XML::Simple> module's namespace.  Subsequent calls to parse
+the same file will return a reference to this structure.  This cached version
+will persist only for the life of the Perl interpreter (which in the case of
+mod_perl for example, may be some significant time).
+
+Because each caller receives a reference to the same data structure, a change
+made by one caller will be visible to all.  For this reason, the reference
+returned should be treated as read-only.
+
+=item memcopy
+
+This scheme works identically to 'memshare' (above) except that each caller
+receives a reference to a new data structure which is a copy of the cached
+version.  Copying the data structure will add a little processing overhead,
+therefore this scheme should only be used where the caller intends to modify
+the data structure (or wishes to protect itself from others who might).  This
+scheme uses B<Storable.pm> to perform the copy.
+
+=back
+
+=item xmldecl => 1  or  xmldecl => 'string'  (B<out>)
+
+If you want the output from C<XMLout()> to start with the optional XML
+declaration, simply set the option to '1'.  The default XML declaration is:
+
+        <?xml version='1' standalone='yes'?>
+
+If you want some other string (for example to declare an encoding value), set
+the value of this option to the complete string you require.
+
+=item rootname => 'string' (B<out>)
+
+By default, when C<XMLout()> generates XML, the root element will be named
+'opt'.  This option allows you to specify an alternative name.
+
+Specifying either undef or the empty string for the rootname option will
+produce XML with no root elements.  In most cases the resulting XML fragment
+will not be 'well formed' and therefore could not be read back in by C<XMLin()>.
+Nevertheless, the option has been found to be useful in certain circumstances.
+
+=item outputfile => <file specifier> (B<out>)
+
+The default behaviour of C<XMLout()> is to return the XML as a string.  If you
+wish to write the XML to a file, simply supply the filename using the
+'outputfile' option.  Alternatively, you can supply an IO handle object instead
+of a filename.
+
+=item noescape => 1 (B<out>)
+
+By default, C<XMLout()> will translate the characters 'E<lt>', 'E<gt>', '&' and
+'"' to '&lt;', '&gt;', '&amp;' and '&quot' respectively.  Use this option to
+suppress escaping (presumably because you've already escaped the data in some
+more sophisticated manner).
+
+=back
+
+=head1 ERROR HANDLING
+
+The XML standard is very clear on the issue of non-compliant documents.  An
+error in parsing any single element (for example a missing end tag) must cause
+the whole document to be rejected.  B<XML::Simple> will die with an
+appropriate message if it encounters a parsing error.
+
+If dying is not appropriate for your application, you should arrange to call
+C<XMLin()> in an eval block and look for errors in $@.  eg:
+
+    my $config = eval { XMLin() };
+    PopUpMessage($@) if($@);
+
+Note, there is a common misconception that use of B<eval> will significantly
+slow down a script.  While that may be true when the code being eval'd is in a
+string, it is not true of code like the sample above.
+
+=head1 EXAMPLES
+
+When C<XMLin()> reads the following very simple piece of XML:
+
+    <opt username="testuser" password="frodo"></opt>
+
+it returns the following data structure:
+
+    {
+      'username' => 'testuser',
+      'password' => 'frodo'
+    }
+
+The identical result could have been produced with this alternative XML:
+
+    <opt username="testuser" password="frodo" />
+
+Or this (although see 'forcearray' option for variations):
+
+    <opt>
+      <username>testuser</username>
+      <password>frodo</password>
+    </opt>
+
+Repeated nested elements are represented as anonymous lists:
+
+    <opt>
+      <person firstname="Joe" lastname="Smith">
+        <email>joe@smith.com</email>
+        <email>jsmith@yahoo.com</email>
+      </person>
+      <person firstname="Bob" lastname="Smith">
+        <email>bob@smith.com</email>
+      </person>
+    </opt>
+
+    {
+      'person' => [
+                    {
+                      'email' => [
+                                   'joe@smith.com',
+                                   'jsmith@yahoo.com'
+                                 ],
+                      'firstname' => 'Joe',
+                      'lastname' => 'Smith'
+                    },
+                    {
+                      'email' => 'bob@smith.com',
+                      'firstname' => 'Bob',
+                      'lastname' => 'Smith'
+                    }
+                  ]
+    }
+
+Nested elements with a recognised key attribute are transformed from a list
+into a hashref keyed on the value of that attribute:
+
+    <opt>
+      <person key="jsmith" firstname="Joe" lastname="Smith" />
+      <person key="tsmith" firstname="Tom" lastname="Smith" />
+      <person key="jbloggs" firstname="Joe" lastname="Bloggs" />
+    </opt>
+
+    {
+      'person' => {
+                    'jbloggs' => {
+                                   'firstname' => 'Joe',
+                                   'lastname' => 'Bloggs'
+                                 },
+                    'tsmith' => {
+                                  'firstname' => 'Tom',
+                                  'lastname' => 'Smith'
+                                },
+                    'jsmith' => {
+                                  'firstname' => 'Joe',
+                                  'lastname' => 'Smith'
+                                }
+                  }
+    }
+
+
+The <anon> tag can be used to form anonymous arrays:
+
+    <opt>
+      <head><anon>Col 1</anon><anon>Col 2</anon><anon>Col 3</anon></head>
+      <data><anon>R1C1</anon><anon>R1C2</anon><anon>R1C3</anon></data>
+      <data><anon>R2C1</anon><anon>R2C2</anon><anon>R2C3</anon></data>
+      <data><anon>R3C1</anon><anon>R3C2</anon><anon>R3C3</anon></data>
+    </opt>
+
+    {
+      'head' => [
+		  [ 'Col 1', 'Col 2', 'Col 3' ]
+		],
+      'data' => [
+		  [ 'R1C1', 'R1C2', 'R1C3' ],
+		  [ 'R2C1', 'R2C2', 'R2C3' ],
+		  [ 'R3C1', 'R3C2', 'R3C3' ]
+		]
+    }
+
+Anonymous arrays can be nested to arbirtrary levels and as a special case, if
+the surrounding tags for an XML document contain only an anonymous array the
+arrayref will be returned directly rather than the usual hashref:
+
+    <opt>
+      <anon><anon>Col 1</anon><anon>Col 2</anon></anon>
+      <anon><anon>R1C1</anon><anon>R1C2</anon></anon>
+      <anon><anon>R2C1</anon><anon>R2C2</anon></anon>
+    </opt>
+
+    [
+      [ 'Col 1', 'Col 2' ],
+      [ 'R1C1', 'R1C2' ],
+      [ 'R2C1', 'R2C2' ]
+    ]
+
+
+
+=head1 WHERE TO FROM HERE?
+
+B<XML::Simple> is by nature very simple.  
+
+=over 4
+
+=item *
+
+The parsing process liberally disposes of 'surplus' whitespace - some 
+applications will be sensitive to this.
+
+=item *
+
+Slurping data into a hash will implicitly discard information about attribute
+order.  Normally this would not be a problem because any items for which order
+is important would typically be encoded as elements rather than attributes.
+However B<XML::Simple>'s aggressive slurping and folding algorithms can
+defeat even these techniques.
+
+=item *
+
+The API offers little control over the output of C<XMLout()>.  In particular,
+it is not especially likely that feeding the output from C<XMLin()> into
+C<XMLout()> will reproduce the original XML (although passing the output from
+C<XMLout()> into C<XMLin()> should reproduce the original data structure).
+
+=item *
+
+C<XMLout()> does not currently support encodings
+
+=back
+
+If any of these points are a problem for you, then B<XML::Simple> is probably
+not the right module for your application.  The following section is intended
+to give pointers which might help you select a more powerful tool - it's a bit
+sketchy right now but submissions are welcome.
+
+=over 4
+
+=item XML::Parser
+
+B<XML::Simple> is built on top of B<XML::Parser>, so if you have B<XML::Simple>
+working you already have B<XML::Parser> installed.  This is a comprehensive,
+fast, industrial strength (non-validating) parsing tool built on top of James
+Clark's 'expat' library.  It does support converting XML into a Perl tree
+structure but for arbritrarily large documents you're probably better off
+defining handler routines for B<XML::Parser> to call as each element is parsed.
+The distribution includes a number of sample applications.
+
+=item XML::DOM
+
+The data structure returned by B<XML::Simple> was designed for convenience
+rather than standards compliance.  B<XML::DOM> is a parser built on top of
+B<XML::Parser> which returns a 'Document' object conforming to the API of the
+Document Object Model as described at http://www.w3.org/TR/REC-DOM-Level-1 .
+This Document object can then be examined, modified and written back out to a
+file or converted to a string. 
+
+=item XML::Grove
+
+Compliance with the Document Object Model might be particularly useful when porting code to or from another language.  However, if your looking for a simpler,
+'perlish' object interface, take a look at B<XML::Grove>.
+
+=item libxml-perl
+
+B<libxml-perl> is a collection of Perl modules, scripts, and documents for
+working with XML in Perl. The distribution includes PerlSAX - a Perl
+implementation of the SAX API.  It also include B<XML::PatAct> modules for
+processing XML by defining patterns and associating them with actions.  For more
+details see http://bitsko.slc.ut.us/libxml-perl/ .
+
+=item XML::Writer
+
+B<XML::Writer> is a helper module for Perl programs that write a XML documents.
+
+=item XML::Dumper
+
+B<XML::Dumper> dumps Perl data to a structured XML format. B<XML::Dumper> can
+also read XML data that was previously dumped by the module and convert it back
+to Perl. 
+
+=back
+
+Don't forget to check out the Perl XML FAQ at:
+http://www.perlxml.com/faq/perl-xml-faq.html
+
+
+=head1 STATUS
+
+This is a production release of B<XML::Simple>.  Although the earlier alpha and
+beta versions were not published on CPAN they were widely used.  Thanks is due
+to the members of the perl-xml list for testing and suggestions.
+
+Since the 'alpha' release, the module has been renamed from Getopt::XML
+and the subroutines XMLToOpt and OptToXML have been renamed to XMLin and XMLout
+respectively.  The module name and subroutine names are now frozen.  A
+'convert' script is included in the distribution to ease migration to the new
+API.
+
+Feedback on the module is welcome and should be directed to the author at the
+email address below.
+
+=head1 SEE ALSO
+
+B<XML::Simple> requires B<XML::Parser>.  The optional caching functions
+require B<Storable>.
+
+=head1 COPYRIGHT 
+
+Copyright 1999 Grant McLean E<lt>grantm@web.co.nzE<gt>
+
+This library is free software; you can redistribute it and/or modify it
+under the same terms as Perl itself. 
+
+=cut
+
+

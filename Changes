@@ -1,0 +1,49 @@
+Revision history for Perl extension XML::Simple
+
+1.00  Nov  25 1999
+	- added escaping feature + noescape option
+	- added xmldecl option
+	- further tidy ups for thread safing
+	- more POD revisions (incl: pointers to other modules)
+
+0.95  Nov  2 1999
+	- added rootname option
+	- added outputfile option
+	- lots of internal tidy ups for thread safing
+	- fixed bug in check for XML string to XMLin()
+	- extra tests (esp option handling)
+
+0.90  Oct 14 1999 (first beta release)
+	- module renamed to XML::Simple ready for CPAN upload
+	- XMLToOpt() renamed to XMLin()
+	- OptToXML() renamed to XMLout()
+	- added 'convert' script
+
+0.05  Sep 18 1999
+	- fixed location of XML.pm in distribution (make install didn't work)
+	- added tests for MemCopy
+        - fixed ABSTRACT_FROM in Makefile.PL
+	- fixed PREREQ_PM in Makefile.PL
+
+0.04  Aug 10 1999
+	- added caching using Storable.pm
+        - updated MANIFEST to include missing test files
+
+0.03  Jun 20 1999
+        - rewrite of OptToXML
+	- anonymous array support
+	- more and better test routines
+	- POD updates
+
+0.02  Jun 10 1999
+	- added support for OptToXML
+	- fixed searchpath inconsistencies
+	- added 'forcearray' option
+	- POD improvements
+	- much improved test routines
+
+0.01  May 27 1999
+	- original version; created by h2xs 1.18
+	- module called 'Getopt::XML'
+	- included basic XMLToOpt routine
+

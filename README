@@ -1,0 +1,53 @@
+DESCRIPTION
+
+  XML::Simple slurps an XML formatted config file into a hashref
+  (or 'unslurps' a hashref out to an XML file).
+
+
+PREREQUISITES
+
+  XML::Simple requires XML::Parser
+  The optional caching features of XML::Simple also require Storable.pm
+
+  Win32 users may be interested to discover that XML::Parser is shipped
+  with the base install of ActivePerl from ActiveState Corp.  Storable.pm
+  can be installed using the PPM utility (and if you've installed DBI,
+  you've probably already got it).
+
+
+BUILDING/INSTALLING
+
+  Once the archive is unpacked, use these commands:
+
+      perl Makefile.PL
+      make
+      make test
+      make install
+
+  If for some reason, you can't run these commands, you can simple copy 
+  the Simple.pm file to your lib/XML directory (where Parser.pm lives).
+
+
+STATUS
+
+  Current release is version 1.00 - the first full release following
+  the alphas and betas.  The module name and subroutine names changed
+  in the first beta release but have been stable since - the 'convert'
+  script will upgrade code written for the alpha release.
+
+  Although the module does not make use of threads, it is believed to be
+  thread safe to the best of the author's knowledge.  (Access to all
+  globals is protected by locks).
+
+  Please send any feedback to the author: grantm@web.co.nz
+
+  See 'Changes' for a detailed history.
+
+
+COPYRIGHT
+
+  Copyright 1999 Grant McLean <grantm@web.co.nz>
+
+  This library is free software; you can redistribute it
+  and/or modify it under the same terms as Perl itself.
+

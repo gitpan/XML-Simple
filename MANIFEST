@@ -1,0 +1,15 @@
+Changes
+MANIFEST
+Makefile.PL
+README
+Simple.pm
+convert
+t/1_XMLin.t
+t/1_XMLin.xml
+t/2_XMLout.t
+t/3_Storable.t
+t/4_MemShare.t
+t/5_MemCopy.t
+t/desertnet.xml-source
+t/subdir/test2.xml
+t/test1.xml
