@@ -1,7 +1,7 @@
 use strict;
 use IO::File;
 
-BEGIN { print "1..164\n"; }
+BEGIN { print "1..189\n"; }
 
 my $t = 1;
 
@@ -645,6 +645,47 @@ ok(159, s{\s*<carfordfordford>\s*(<option\s*/>\s*){3}</car>}{CAR}s);
 ok(160, s{^<(\w+)\s*>\s*CAR\s*CAR\s*</\1>$}{}s);
 
 
+# Check that empty hashes translate to empty tags
+
+$ref = {
+  'one' => {
+    'attr1' => 'avalue1',
+    'nest1' => [ 'nvalue1' ],
+    'nest2' => {}
+  },
+  two => {}
+};
+
+$_ = XMLout($ref);
+
+ok(161, s{<nest2\s*></nest2\s*>\s*}{<NNN>});
+ok(162, s{<nest1\s*>nvalue1</nest1\s*>\s*}{<NNN>});
+ok(163, s{<one\s*attr1\s*=\s*"avalue1">\s*}{<one>});
+ok(164, s{<one\s*>\s*<NNN>\s*<NNN>\s*</one>}{<nnn>});
+ok(165, s{<two\s*></two\s*>\s*}{<nnn>});
+ok(166, m{^\s*<(\w+)\s*>\s*<nnn>\s*<nnn>\s*</\1\s*>\s*$});
+
+
+# Check undefined values generate warnings 
+
+{
+my $warn = '';
+local $SIG{__WARN__} = sub { $warn = $_[0] };
+$_ = eval {
+  $ref = { 'tag' => undef };
+  XMLout($ref);
+};
+ok(167, $warn =~ /Use of uninitialized value/);
+}
+
+
+# Unless undef is mapped to empty tags
+
+$ref = { 'tag' => undef };
+$_ = XMLout($ref, suppressempty => undef);
+ok(168, m{^\s*<(\w*)\s*>\s*<tag\s*></tag\s*>\s*</\1\s*>\s*$}s);
+
+
 # Test the keeproot option
 
 $ref = {
@@ -657,7 +698,7 @@ $ref = {
 my $xml1 = XMLout($ref, rootname => 'sequence');
 my $xml2 = XMLout({ 'sequence' => $ref }, keeproot => 1);
 
-ok(161, DataCompare($xml1, $xml2));
+ok(169, DataCompare($xml1, $xml2));
 
 
 # Test that items with text content are output correctly
@@ -667,7 +708,7 @@ $ref = { 'one' => 1, 'content' => 'text' };
 
 $_ = XMLout($ref);
 
-ok(162, m{^\s*<opt\s+one="1">text</opt>\s*$}s);
+ok(170, m{^\s*<opt\s+one="1">text</opt>\s*$}s);
 
 
 # Even if we change the default value for the 'contentkey' option
@@ -676,7 +717,76 @@ $ref = { 'one' => 1, 'text_content' => 'text' };
 
 $_ = XMLout($ref, contentkey => 'text_content');
 
-ok(163, m{^\s*<opt\s+one="1">text</opt>\s*$}s);
+ok(171, m{^\s*<opt\s+one="1">text</opt>\s*$}s);
+
+
+# Check 'noattr' option
+
+$ref = {
+  attr1  => 'value1',
+  attr2  => 'value2',
+  nest   => [ qw(one two three) ]
+};
+
+# Expect:
+#
+# <opt>
+#   <attr1>value1</attr1>
+#   <attr2>value2</attr2>
+#   <nest>one</nest>
+#   <nest>two</nest>
+#   <nest>three</nest>
+# </opt>
+#
+
+$_ = XMLout($ref, noattr => 1);
+
+ok(172, !m{=}s);                               # No '=' signs anywhere
+ok(173, DataCompare($ref, XMLin($_)));         # Parses back ok
+ok(174, s{\s*<(attr1)>value1</\1>\s*}{NEST}s); # Output meets expectations
+ok(175, s{\s*<(attr2)>value2</\1>\s*}{NEST}s);
+ok(176, s{\s*<(nest)>one</\1>\s*<\1>two</\1>\s*<\1>three</\1>}{NEST}s);
+ok(177, s{^<(\w+)\s*>(NEST\s*){3}</\1>$}{}s);
+
+
+# Check noattr doesn't screw up keyattr
+
+$ref = { number => {
+  'twenty one' => { dec => 21, hex => '0x15' },
+  'thirty two' => { dec => 32, hex => '0x20' }
+  }
+};
+
+# Expect:
+#
+# <opt>
+#   <number>
+#     <dec>21</dec>
+#     <word>twenty one</word>
+#     <hex>0x15</hex>
+#   </number>
+#   <number>
+#     <dec>32</dec>
+#     <word>thirty two</word>
+#     <hex>0x20</hex>
+#   </number>
+# </opt>
+#
+
+$_ = XMLout($ref, noattr => 1, keyattr => [ 'word' ]);
+
+ok(178, !m{=}s);                               # No '=' signs anywhere
+                                               # Parses back ok
+ok(179, DataCompare($ref, XMLin($_, keyattr => [ 'word' ])));
+ok(180, s{\s*<(dec)>21</\1>\s*}{21}s);
+ok(181, s{\s*<(hex)>0x15</\1>\s*}{21}s);
+ok(182, s{\s*<(word)>twenty one</\1>\s*}{21}s);
+ok(183, s{\s*<(number)>212121</\1>\s*}{NUM}s);
+ok(184, s{\s*<(dec)>32</\1>\s*}{32}s);
+ok(185, s{\s*<(hex)>0x20</\1>\s*}{32}s);
+ok(186, s{\s*<(word)>thirty two</\1>\s*}{32}s);
+ok(187, s{\s*<(number)>323232</\1>\s*}{NUM}s);
+ok(188, s{^<(\w+)\s*>NUMNUM</\1>$}{}s);
 
 
 # 'Stress test' with a data structure that maps to several thousand elements.
@@ -694,7 +804,7 @@ $xml = XMLout($opt1, keyattr => { TypeA => 'alpha', TypeB => 'beta', Record => '
 
 my $opt2 = XMLin($xml, keyattr => { TypeA => 'alpha', TypeB => 'beta', Record => 'id' }, forcearray => 1);
 
-ok(164, DataCompare($opt1, $opt2));
+ok(189, DataCompare($opt1, $opt2));
 
 exit(0);
 

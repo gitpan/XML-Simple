@@ -32,18 +32,34 @@ BUILDING/INSTALLING
 
 STATUS
 
-  This version (1.04) is the current stable release.  This version is
-  believed to be thread-safe (the faulty locking code from 1.00 which was
-  removed in 1.01 was fixed in 1.03).
+  This version (1.05) is the current stable release.  This version is
+  believed to be thread-safe.
 
   Please send any feedback to the author: grantm@web.co.nz
 
 
 NEW IN THIS RELEASE
 
-  - New object oriented interface (optional)
-  - New options: keeproot and contentkey
-  - Changed options: forcearray now accepts a list of names
+  - code re-org to make internals all OO for easier extending
+  - added 'noattr' option to tell XMLout() not to use attributes (only
+    nested elements) and XMLin() to discard attributes
+  - added 'suppressempty' option to tell XMLin what to do with elements
+    with no attributes and no content
+  - added 'parseropts' option for specifying options which should be
+    passed to the underlying XML::Parser object
+  - added 'forcecontent' option to force text content to parse to a
+    hash value even if the element has no attributes
+  - fix for forcearray getting applied to text content
+  - integrated patch from Paul Lindner to work around filenames sometimes
+    being seen as XML when running under mod_perl
+  - integrated patch from Edward Avis: filename '-' means stdin
+  - fixed bug where a missing key attribute could cause a crash
+  - added a warning message for above situation
+  - added 'support' for CDATA sections - they always worked, but now
+    they're in the test suite which should ensure they keep working
+  - fixed error message when caching enabled but parsing from filehandle
+  - fixed empty elements being skipped by XMLout() when folding enabled
+  - fixed text content of '0' being skipped by XMLout()
 
   See 'Changes' for a detailed history.
 

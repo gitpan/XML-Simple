@@ -12,6 +12,16 @@ XML::Simple - Trivial API for reading and writing XML (esp config files)
 
     my $xml = XMLout($hashref [, <options>]);
 
+Or the object oriented way:
+
+    require XML::Simple;
+
+    my $xs = new XML::Simple(options);
+
+    my $ref = $xs->XMLin([<xml file or string>] [, <options>]);
+
+    my $xml = $xs->XMLout($hashref [, <options>]);
+
 =cut
 
 # See after __END__ for more POD documentation
@@ -32,7 +42,7 @@ use vars qw($VERSION @ISA @EXPORT);
 
 @ISA               = qw(Exporter);
 @EXPORT            = qw(XMLin XMLout);
-$VERSION           = '1.04';
+$VERSION           = '1.05';
 
 my %CacheScheme    = (
                        storable => [ \&StorableSave, \&StorableRestore ],
@@ -41,10 +51,10 @@ my %CacheScheme    = (
 		     );
 
 my $DefaultValues  = 1;       # Used for locking only
-my @KnownOptIn     = qw(keyattr keeproot contentkey
-                        searchpath forcearray cache);
-my @KnownOptOut    = qw(keyattr keeproot contentkey
-                        rootname xmldecl outputfile noescape);
+my @KnownOptIn     = qw(keyattr keeproot forcecontent contentkey noattr
+                        searchpath forcearray cache suppressempty parseropts);
+my @KnownOptOut    = qw(keyattr keeproot contentkey noattr
+                        rootname xmldecl outputfile noescape suppressempty);
 my @DefKeyAttr     = qw(name key id);
 my $DefRootName    = qq(opt);
 my $DefContentKey  = qq(content);
@@ -75,20 +85,21 @@ BEGIN {
 #
 
 sub new {
-  my $class = shift;
+  my $class = ref($_[0]) || $_[0];      # Works as object or class method
+  shift;
 
   if(@_ % 2) {
     croak "Default options must be name=>value pairs (odd number supplied)";
   }
 
-  my $self = { @_ };
+  my $self = { defopt => { @_ } };
 
   return(bless($self, $class));
 }
 
 
 ##############################################################################
-# Sub: XMLin()
+# Sub/Method: XMLin()
 #
 # Exported routine for slurping XML into a hashref - see pod for info.
 #
@@ -100,20 +111,25 @@ sub new {
 
 sub XMLin {
 
-  # Are we being called as an object method?
+  # If this is not a method call, create an object
 
-  my $DefOpts = undef;
+  my $self;
   if($_[0]  and  UNIVERSAL::isa($_[0], 'XML::Simple')) {
-    $DefOpts = shift;
+    $self = shift;
+  }
+  else {
+    $self = new XML::Simple();
   }
 
 
-  my $String = shift;
-  my $Options = HandleOptions($DefOpts, 'in', @_);
+  my $string = shift;
+
+  $self->handle_options('in', @_);
+
 
   # If no XML or filename supplied, look for scriptname.xml in script directory
 
-  unless(defined($String))  {
+  unless(defined($string))  {
     
     # Translate scriptname[.suffix] to scriptname.xml
 
@@ -122,71 +138,115 @@ sub XMLin {
     my($ScriptName, $ScriptDir, $Extension) =
       File::Basename::fileparse($0, '\.[^\.]+');
 
-    $String = $ScriptName . '.xml';
+    $string = $ScriptName . '.xml';
 
 
     # Add script directory to searchpath
     
     if($ScriptDir) {
-      unshift(@{$Options->{searchpath}}, $ScriptDir);
+      unshift(@{$self->{opt}->{searchpath}}, $ScriptDir);
     }
   }
   
 
   # Are we parsing from a file?  If so, is there a valid cache available?
 
-  my($Filename, $Scheme);
-  unless($String =~ m{<.*?>}s  ||  ref($String)) {
+  my($filename, $scheme);
+  unless($string =~ m{<.*?>}s  or  ref($string)  or  $string eq '-') {
 
     require File::Basename;
     require File::Spec;
 
-    $Filename = FindXMLFile($String, @{$Options->{searchpath}});
+    $filename = $self->find_xml_file($string, @{$self->{opt}->{searchpath}});
 
-    if($Options->{cache}) {
+    if($self->{opt}->{cache}) {
       lock(%CacheScheme);
-      foreach $Scheme (@{$Options->{cache}}) {
-	croak "Unsupported caching scheme: $Scheme"
-	  unless($CacheScheme{$Scheme});
+      foreach $scheme (@{$self->{opt}->{cache}}) {
+	croak "Unsupported caching scheme: $scheme"
+	  unless($CacheScheme{$scheme});
 
-	my $opt = $CacheScheme{$Scheme}->[1]->($Filename);
+	my $opt = $CacheScheme{$scheme}->[1]->($filename);
 	return($opt) if($opt);
       }
+    }
+  }
+  else {
+    delete($self->{opt}->{cache});
+    if($string eq '-') {
+      # Read from standard input
+      $filename = '-';
     }
   }
 
 
   # Parsing is required, so let's get on with it
 
-  {
-    local($^W) = 0;       # Suppress warning from Expat.pm re File::Spec::load()
-    require XML::Parser;  # We didn't need it until now
-  }
+  my $tree =  $self->build_tree($filename, $string);
 
-  my $xp = new XML::Parser(Style => 'Tree');
-  my($tree, $ref);
-  if($Filename) {
-    $tree = $xp->parsefile($Filename);
-  }
-  else {
-    $tree = $xp->parse($String);
-  }
 
-  
   # Now work some magic on the resulting parse tree
 
-  if($Options->{keeproot}) {
-    $ref = Collapse($Options, {}, @$tree);
+  my($ref);
+  if($self->{opt}->{keeproot}) {
+    $ref = $self->collapse({}, @$tree);
   }
   else {
-    $ref = Collapse($Options, @{$tree->[1]});
+    $ref = $self->collapse(@{$tree->[1]});
   }
 
-  if($Options->{cache}) {
-    $CacheScheme{$Options->{cache}->[0]}->[0]->($ref, $Filename);
+  if($self->{opt}->{cache}) {
+    $CacheScheme{$self->{opt}->{cache}->[0]}->[0]->($ref, $filename);
   }
 
   return($ref);
+}
+
+
+##############################################################################
+# Method: build_tree()
+#
+# If parsing is required, this is the routine that does it - using the 'Tree'
+# style of XML::Parser.
+#
+# If you're planning to override this routine, your version should return the
+# same type of data structure as an XML::Parser Tree (summarised in the 
+# comments for the collapse() routine below).
+#
+
+sub build_tree {
+  my $self     = shift;
+  my $filename = shift;
+  my $string   = shift;
+
+
+  {
+    local($^W) = 0;      # Suppress warning from Expat.pm re File::Spec::load()
+    require XML::Parser; # We didn't need it until now
+  }
+
+  my $xp = new XML::Parser(Style => 'Tree', @{$self->{opt}->{parseropts}});
+  my($tree);
+
+
+  # Work around wierd read error problem in expat with '-'
+
+  if($filename  and  $filename eq '-') {
+    local($/) = undef;
+    $string = <STDIN>;
+    $filename = undef;
+  }
+  if($filename) {
+    # $tree = $xp->parsefile($filename);  # Changed due to prob w/mod_perl
+    local(*XML_FILE);
+    open(XML_FILE, "<$filename") || croak qq($filename - $!);
+    $tree = $xp->parse(*XML_FILE);
+    close(XML_FILE);
+  }
+  else {
+    $tree = $xp->parse($string);
+  }
+
+  return($tree);
 }
 
 
@@ -198,14 +258,14 @@ sub XMLin {
 #
 
 sub StorableSave {
-  my($Data, $Filename) = @_;
+  my($data, $filename) = @_;
 
-  my $CacheFile = $Filename;
-  $CacheFile =~ s{(\.xml)?$}{.stor};
+  my $cachefile = $filename;
+  $cachefile =~ s{(\.xml)?$}{.stor};
 
   require Storable;           # We didn't need it until now
   
-  Storable::nstore($Data, $CacheFile);
+  Storable::nstore($data, $cachefile);
   
 }
 
@@ -219,19 +279,19 @@ sub StorableSave {
 #
 
 sub StorableRestore {
-  my($Filename) = @_;
+  my($filename) = @_;
   
-  my $CacheFile = $Filename;
-  $CacheFile =~ s{(\.xml)?$}{.stor};
+  my $cachefile = $filename;
+  $cachefile =~ s{(\.xml)?$}{.stor};
 
-  return unless(-r $CacheFile);
-  return unless((stat($CacheFile))[9] > (stat($Filename))[9]);
+  return unless(-r $cachefile);
+  return unless((stat($cachefile))[9] > (stat($filename))[9]);
 
   unless($INC{'Storable.pm'}) {
     require Storable;           # We didn't need it until now
   }
   
-  return(Storable::retrieve($CacheFile));
+  return(Storable::retrieve($cachefile));
   
 }
 
@@ -244,10 +304,10 @@ sub StorableRestore {
 #
 
 sub MemShareSave {
-  my($Data, $Filename) = @_;
+  my($data, $filename) = @_;
 
   lock(%MemShareCache);
-  $MemShareCache{$Filename} = [time(), $Data];
+  $MemShareCache{$filename} = [time(), $data];
 }
 
 
@@ -258,13 +318,13 @@ sub MemShareSave {
 #
 
 sub MemShareRestore {
-  my($Filename) = @_;
+  my($filename) = @_;
   
   lock(%MemShareCache);
-  return unless($MemShareCache{$Filename});
-  return unless($MemShareCache{$Filename}->[0] > (stat($Filename))[9]);
+  return unless($MemShareCache{$filename});
+  return unless($MemShareCache{$filename}->[0] > (stat($filename))[9]);
 
-  return($MemShareCache{$Filename}->[1]);
+  return($MemShareCache{$filename}->[1]);
   
 }
 
@@ -277,14 +337,14 @@ sub MemShareRestore {
 #
 
 sub MemCopySave {
-  my($Data, $Filename) = @_;
+  my($data, $filename) = @_;
 
   lock(%MemCopyCache);
   unless($INC{'Storable.pm'}) {
     require Storable;           # We didn't need it until now
   }
   
-  $MemCopyCache{$Filename} = [time(), Storable::dclone($Data)];
+  $MemCopyCache{$filename} = [time(), Storable::dclone($data)];
 }
 
 
@@ -296,36 +356,42 @@ sub MemCopySave {
 #
 
 sub MemCopyRestore {
-  my($Filename) = @_;
+  my($filename) = @_;
   
   lock(%MemCopyCache);
-  return unless($MemCopyCache{$Filename});
-  return unless($MemCopyCache{$Filename}->[0] > (stat($Filename))[9]);
+  return unless($MemCopyCache{$filename});
+  return unless($MemCopyCache{$filename}->[0] > (stat($filename))[9]);
 
-  return(Storable::dclone($MemCopyCache{$Filename}->[1]));
+  return(Storable::dclone($MemCopyCache{$filename}->[1]));
   
 }
 
 
 ##############################################################################
-# Sub: XMLout()
+# Sub/Method: XMLout()
 #
 # Exported routine for 'unslurping' a data structure out to XML.
+#
+# Expects a reference to a data structure and an optional list of option
+# name => value pairs.
 #
 
 sub XMLout {
 
-  # Are we being called as an object method?
+  # If this is not a method call, create an object
 
-  my $DefOpts = undef;
-  if (UNIVERSAL::isa($_[0], 'XML::Simple')) {
-    $DefOpts = shift;
+  my $self;
+  if($_[0]  and  UNIVERSAL::isa($_[0], 'XML::Simple')) {
+    $self = shift;
+  }
+  else {
+    $self = new XML::Simple();
   }
 
 
   my $ref = shift;
 
-  my $Options = HandleOptions($DefOpts, 'out', @_);
+  $self->handle_options('out', @_);
 
 
   # Wrap top level arrayref in a hash
@@ -337,17 +403,17 @@ sub XMLout {
 
   # Extract rootname from top level hash if keeproot enabled
 
-  if($Options->{keeproot}) {
+  if($self->{opt}->{keeproot}) {
     my(@keys) = keys(%$ref);
     if(@keys == 1) {
       $ref = $ref->{$keys[0]};
-      $Options->{rootname} = $keys[0];
+      $self->{opt}->{rootname} = $keys[0];
     }
   }
   
   # Ensure there are no top level attributes if we're not adding root elements
 
-  elsif($Options->{rootname} eq '') {
+  elsif($self->{opt}->{rootname} eq '') {
     if(ref($ref) eq 'HASH') {
       my $refsave = $ref;
       $ref = {};
@@ -365,18 +431,18 @@ sub XMLout {
 
   # Encode the hashref and write to file if necessary
 
-  my $xml = ValueToXML($Options, $ref, $Options->{rootname}, {}, '');
-  if($Options->{xmldecl}) {
-    $xml = $Options->{xmldecl} . "\n" . $xml;
+  my $xml = $self->value_to_xml($ref, $self->{opt}->{rootname}, {}, '');
+  if($self->{opt}->{xmldecl}) {
+    $xml = $self->{opt}->{xmldecl} . "\n" . $xml;
   }
 
-  if($Options->{outputfile}) {
-    if(ref($Options->{outputfile})) {
-      return($Options->{outputfile}->print($xml));
+  if($self->{opt}->{outputfile}) {
+    if(ref($self->{opt}->{outputfile})) {
+      return($self->{opt}->{outputfile}->print($xml));
     }
     else {
-      open(_XML_SIMPLE_OUT_, ">$Options->{outputfile}") ||
-        croak "open($Options->{outputfile}): $!";
+      open(_XML_SIMPLE_OUT_, ">$self->{opt}->{outputfile}") ||
+        croak "open($self->{opt}->{outputfile}): $!";
       print _XML_SIMPLE_OUT_ $xml || croak "print: $!";
       close(_XML_SIMPLE_OUT_);
     }
@@ -388,38 +454,36 @@ sub XMLout {
 
 
 ##############################################################################
-# Sub: HandleOptions()
+# Method: handle_options()
 #
 # Helper routine for both XMLin() and XMLout().  Both routines handle their
 # first argument and assume all other args are options handled by this routine.
-# Returns a reference to a hash of options.
+# Saves a hash of options in $self->{opt}.
 #
-# Expects first argument to be hashref of 'default' options from object
-# constructor (or undef if not OO mode).
+# If default options were passed to the constructor, they will be retrieved
+# here and merged with options supplied to the method call.
 #
-# Second argument should be the string 'in' or the string 'out'.
+# First argument should be the string 'in' or the string 'out'.
 #
 # Remaining arguments should be name=>value pairs.  Sets up default values
 # for options not supplied.  Unrecognised options are a fatal error.
 #
 
-sub HandleOptions  {
+sub handle_options  {
+  my $self = shift;
+  my $dirn = shift;
+
 
   lock($DefaultValues);
 
-
-  my $DefOpts = shift;
-
-  
   # Determine valid options based on context
 
-  my %KnownOpt; 
-  my $Dirn = shift;
-  if($Dirn eq 'in') {
-    @KnownOpt{@KnownOptIn} = @KnownOptIn;
+  my %known_opt; 
+  if($dirn eq 'in') {
+    @known_opt{@KnownOptIn} = @KnownOptIn;
   }
   else {
-    @KnownOpt{@KnownOptOut} = @KnownOptOut;
+    @known_opt{@KnownOptOut} = @KnownOptOut;
   }
 
 
@@ -428,21 +492,22 @@ sub HandleOptions  {
   if(@_ % 2) {
     croak "Options must be name=>value pairs (odd number supplied)";
   }
-  my $Options = { @_ };
+  my $opt = { @_ };
+  $self->{opt} = $opt;
 
-  foreach (keys(%$Options)) {
+  foreach (keys(%$opt)) {
     croak "Unrecognised option: $_"
-      unless($KnownOpt{$_});
+      unless($known_opt{$_});
   }
 
 
-  # Merge in values from $DefOpts
+  # Merge in options passed to constructor
 
-  if($DefOpts) {
-    foreach (keys(%KnownOpt)) {
-      unless(exists($Options->{$_})) {
-	if(exists($DefOpts->{$_})) {
-	  $Options->{$_} = $DefOpts->{$_};
+  if($self->{defopt}) {
+    foreach (keys(%known_opt)) {
+      unless(exists($opt->{$_})) {
+	if(exists($self->{defopt}->{$_})) {
+	  $opt->{$_} = $self->{defopt}->{$_};
 	}
       }
     }
@@ -451,108 +516,110 @@ sub HandleOptions  {
 
   # Set sensible defaults if not supplied
   
-  if(exists($Options->{rootname})) {
-    unless(defined($Options->{rootname})) {
-      $Options->{rootname} = '';
+  if(exists($opt->{rootname})) {
+    unless(defined($opt->{rootname})) {
+      $opt->{rootname} = '';
     }
   }
   else {
-    $Options->{rootname} = $DefRootName;
+    $opt->{rootname} = $DefRootName;
   }
   
-  if($Options->{xmldecl}  and  $Options->{xmldecl} eq '1') {
-    $Options->{xmldecl} = $DefXmlDecl;
+  if($opt->{xmldecl}  and  $opt->{xmldecl} eq '1') {
+    $opt->{xmldecl} = $DefXmlDecl;
   }
 
-  unless(exists($Options->{contentkey})) {
-    $Options->{contentkey} = $DefContentKey;
+  unless(exists($opt->{contentkey})) {
+    $opt->{contentkey} = $DefContentKey;
   }
 
 
   # Cleanups for values assumed to be arrays later
 
-  if($Options->{searchpath}) {
-    unless(ref($Options->{searchpath})) {
-      $Options->{searchpath} = [ $Options->{searchpath} ];
+  if($opt->{searchpath}) {
+    unless(ref($opt->{searchpath})) {
+      $opt->{searchpath} = [ $opt->{searchpath} ];
     }
   }
   else  {
-    $Options->{searchpath} = [ ];
+    $opt->{searchpath} = [ ];
   }
 
-  if($Options->{cache}  and !ref($Options->{cache})) {
-    $Options->{cache} = [ $Options->{cache} ];
+  if($opt->{cache}  and !ref($opt->{cache})) {
+    $opt->{cache} = [ $opt->{cache} ];
   }
   
+  unless(exists($opt->{parseropts})) {
+    $opt->{parseropts} = [ ];
+  }
+
 
   # Special cleanup for {keyattr} which could be arrayref or hashref or left
   # to default to arrayref
 
-  if(exists($Options->{keyattr}))  {
-    if(ref($Options->{keyattr})) {
-      if(ref($Options->{keyattr}) eq 'HASH') {
+  if(exists($opt->{keyattr}))  {
+    if(ref($opt->{keyattr})) {
+      if(ref($opt->{keyattr}) eq 'HASH') {
 
 	# Make a copy so we can mess with it
 
-	$Options->{keyattr} = { %{$Options->{keyattr}} };
+	$opt->{keyattr} = { %{$opt->{keyattr}} };
 
 	
 	# Convert keyattr => { elem => '+attr' }
 	# to keyattr => { elem => [ 'attr', '+' ] } 
 
-	foreach (keys(%{$Options->{keyattr}})) {
-	  if($Options->{keyattr}->{$_} =~ /^(\+|-)?(.*)$/) {
-	    $Options->{keyattr}->{$_} = [ $2, ($1 ? $1 : '') ];
+	foreach (keys(%{$opt->{keyattr}})) {
+	  if($opt->{keyattr}->{$_} =~ /^(\+|-)?(.*)$/) {
+	    $opt->{keyattr}->{$_} = [ $2, ($1 ? $1 : '') ];
 	  }
 	  else {
-	    delete($Options->{keyattr}->{$_}); # Never reached
+	    delete($opt->{keyattr}->{$_}); # Never reached (famous last words?)
 	  }
 	}
       }
       else {
-	if(@{$Options->{keyattr}} == 0) {
-	  delete($Options->{keyattr});
+	if(@{$opt->{keyattr}} == 0) {
+	  delete($opt->{keyattr});
 	}
       }
     }
     else {
-      $Options->{keyattr} = [ $Options->{keyattr} ];
+      $opt->{keyattr} = [ $opt->{keyattr} ];
     }
   }
   else  {
-    $Options->{keyattr} = [ @DefKeyAttr ];
+    $opt->{keyattr} = [ @DefKeyAttr ];
   }
 
   
   # Special cleanup for {forcearray} which could be arrayref or boolean
   # or left to default to 0
 
-  if(exists($Options->{forcearray})) {
-    if(ref($Options->{forcearray}) eq 'ARRAY') {
-      if(@{$Options->{forcearray}}) {
-        $Options->{forcearray} = { (
-	  map { $_ => 1 } @{$Options->{forcearray}}
+  if(exists($opt->{forcearray})) {
+    if(ref($opt->{forcearray}) eq 'ARRAY') {
+      if(@{$opt->{forcearray}}) {
+        $opt->{forcearray} = { (
+	  map { $_ => 1 } @{$opt->{forcearray}}
 	) };
       }
       else {
-        $Options->{forcearray} = 0;
+        $opt->{forcearray} = 0;
       }
     }
     else {
-      $Options->{forcearray} = ( $Options->{forcearray} ? 1 : 0 );
+      $opt->{forcearray} = ( $opt->{forcearray} ? 1 : 0 );
     }
   }
   else {
-    $Options->{forcearray} = 0;
+    $opt->{forcearray} = 0;
   }
 
-
-  return($Options);
 }
 
 
 ##############################################################################
-# Sub: FindXMLFile()
+# Method: find_xml_file()
 #
 # Helper routine for XMLin().
 # Takes a filename, and a list of directories, attempts to locate the file in
@@ -560,31 +627,32 @@ sub HandleOptions  {
 # Returns a full pathname on success; croaks on failure.
 #
 
-sub FindXMLFile  {
-  my $File = shift;
-  my @SearchPath = @_;
+sub find_xml_file  {
+  my $self = shift;
+  my $file = shift;
+  my @search_path = @_;
 
 
-  my($FileName, $FileDir) =
-    File::Basename::fileparse($File);
+  my($filename, $filedir) =
+    File::Basename::fileparse($file);
 
-  if($FileName ne $File) {        # Ignore searchpath if dir component
-    return($File) if(-e $File);
+  if($filename ne $file) {        # Ignore searchpath if dir component
+    return($file) if(-e $file);
   }
   else {
-    my($Path);
-    foreach $Path (@SearchPath)  {
-      my $FullPath = File::Spec->catfile($Path, $File);
-      return($FullPath) if(-e $FullPath);
+    my($path);
+    foreach $path (@search_path)  {
+      my $fullpath = File::Spec->catfile($path, $file);
+      return($fullpath) if(-e $fullpath);
     }
   }
 
-  croak "Could not find $File in ", join(':', @SearchPath);
+  croak "Could not find $file in ", join(':', @search_path);
 }
 
 
 ##############################################################################
-# Sub: Collapse()
+# Method: collapse()
 #
 # Helper routine for XMLin().  This routine really comprises the 'smarts' (or
 # value add) of this module.
@@ -595,8 +663,8 @@ sub FindXMLFile  {
 #
 # Elements in the original parser tree are represented as an element name
 # followed by an arrayref.  The first element of the array is a hashref
-# containing the attributes.  The rest of the array contains ia list of any
-# nested elements as name array ref pairs:
+# containing the attributes.  The rest of the array contains a list of any
+# nested elements as name+arrayref pairs:
 #
 #  <element name>, [ { <attribute hashref> }, <element name>, [ ... ], ... ]
 #
@@ -610,14 +678,14 @@ sub FindXMLFile  {
 # 'folded' into a hashref depending on the value of the keyattr option.
 #
 
-sub Collapse {
-
-  my $Options = shift;
+sub collapse {
+  my $self = shift;;
 
 
   # Start with the hash of attributes
   
   my $attr  = shift;
+  $attr = {} if($self->{opt}->{noattr});    # Discard if 'noattr' set
 
 
   # Add any nested elements
@@ -628,14 +696,17 @@ sub Collapse {
     $val = shift;
 
     if(ref($val)) {
-      $val = Collapse($Options, @$val);
+      $val = $self->collapse(@$val);
+      next if(!defined($val)  and  $self->{opt}->{suppressempty});
     }
     elsif($key eq '0') {
       next if($val =~ m{^\s*$}s);  # Skip all whitespace content
       if(!%$attr  and  !@_) {      # Short circuit text in tag with no attr
-        return($val);
+        return($self->{opt}->{forcecontent} ?
+	       { $self->{opt}->{contentkey} => $val } : $val
+	      );
       }
-      $key = $Options->{contentkey};
+      $key = $self->{opt}->{contentkey};
     }
 
 
@@ -653,11 +724,14 @@ sub Collapse {
       $attr->{$key} = [ $val ];
     }
     else {
-#      $attr->{$key} = ($Options->{forcearray} ? [ $val ] : $val);
-      if(   ($Options->{forcearray} == 1)
-         || (   (ref($Options->{forcearray}) eq 'HASH')
-	     && ($Options->{forcearray}->{$key})
+      if( $key ne $self->{opt}->{contentkey}  and
+          (
+	    ($self->{opt}->{forcearray} == 1) or
+	    ( 
+	      (ref($self->{opt}->{forcearray}) eq 'HASH') and
+	      ($self->{opt}->{forcearray}->{$key})
 	    )
+	  )
 	) {
 	$attr->{$key} = [ $val ];
       }
@@ -671,10 +745,10 @@ sub Collapse {
   # Turn arrayrefs into hashrefs if key fields present
 
   my $count = 0;
-  if($Options->{keyattr}) {
+  if($self->{opt}->{keyattr}) {
     while(($key,$val) = each %$attr) {
       if(ref($val) eq 'ARRAY') {
-	$attr->{$key} = ArrayToHash($Options, $key, $val);
+	$attr->{$key} = $self->array_to_hash($key, $val);
       }
       $count++;
     }
@@ -687,41 +761,57 @@ sub Collapse {
     return($attr->{anon});
   }
 
+
+  # Do the right thing if hash is empty, otherwise just return it
+
+  if(!%$attr  and  exists($self->{opt}->{suppressempty})) {
+    if(defined($self->{opt}->{suppressempty})  and
+       $self->{opt}->{suppressempty} eq '') {
+      return('');
+    }
+    return(undef);
+  }
+
   return($attr)
+
 }
 
 
 ##############################################################################
-# Sub: ArrayToHash()
+# Method: array_to_hash()
 #
-# Helper routine for Collapse().
+# Helper routine for collapse().
 # Attempts to 'fold' an array of hashes into an hash of hashes.  Returns a
 # reference to the hash on success or the original array if folding is
 # not possible.  Behaviour is controlled by 'keyattr' option.
 #
 
-sub ArrayToHash {
+sub array_to_hash {
+  my $self     = shift;
+  my $name     = shift;
+  my $arrayref = shift;
 
-  my $Options  = shift;
-  my $Name     = shift;
-  my $ArrayRef = shift;
-
-  my $HashRef  = {};
+  my $hashref  = {};
 
   my($i, $key, $val, $flag);
 
 
   # Handle keyattr => { .... }
 
-  if(ref($Options->{keyattr}) eq 'HASH') {
-    return($ArrayRef) unless(exists($Options->{keyattr}->{$Name}));
-    ($key, $flag) = @{$Options->{keyattr}->{$Name}};
-    for($i = 0; $i < @$ArrayRef; $i++)  {
-      return($ArrayRef) unless(exists($ArrayRef->[$i]->{$key}));
-      $val = $ArrayRef->[$i]->{$key};
-      $HashRef->{$val} = { %{$ArrayRef->[$i]} };
-      $HashRef->{$val}->{"-$key"} = $HashRef->{$val}->{$key} if($flag eq '-');
-      delete $HashRef->{$val}->{$key} unless($flag eq '+');
+  if(ref($self->{opt}->{keyattr}) eq 'HASH') {
+    return($arrayref) unless(exists($self->{opt}->{keyattr}->{$name}));
+    ($key, $flag) = @{$self->{opt}->{keyattr}->{$name}};
+    for($i = 0; $i < @$arrayref; $i++)  {
+      if(ref($arrayref->[$i]) eq 'HASH' and exists($arrayref->[$i]->{$key})) {
+	$val = $arrayref->[$i]->{$key};
+	$hashref->{$val} = { %{$arrayref->[$i]} };
+	$hashref->{$val}->{"-$key"} = $hashref->{$val}->{$key} if($flag eq '-');
+	delete $hashref->{$val}->{$key} unless($flag eq '+');
+      }
+      else {
+	carp "Warning: <$name> element has no '$key' key attribute" if($^W);
+	return($arrayref);
+      }
     }
   }
 
@@ -729,44 +819,50 @@ sub ArrayToHash {
   # Or assume keyattr => [ .... ]
 
   else {
-    ELEMENT: for($i = 0; $i < @$ArrayRef; $i++)  {
-      return($ArrayRef) unless(ref($ArrayRef->[$i]) eq 'HASH');
+    ELEMENT: for($i = 0; $i < @$arrayref; $i++)  {
+      return($arrayref) unless(ref($arrayref->[$i]) eq 'HASH');
 
-      foreach $key (@{$Options->{keyattr}}) {
-	if(defined($ArrayRef->[$i]->{$key}))  {
-	  $val = $ArrayRef->[$i]->{$key};
-	  $HashRef->{$val} = { %{$ArrayRef->[$i]} };
-	  delete $HashRef->{$val}->{$key};
+      foreach $key (@{$self->{opt}->{keyattr}}) {
+	if(defined($arrayref->[$i]->{$key}))  {
+	  $val = $arrayref->[$i]->{$key};
+	  $hashref->{$val} = { %{$arrayref->[$i]} };
+	  delete $hashref->{$val}->{$key};
 	  next ELEMENT;
 	}
       }
 
-      return($ArrayRef);    # No keyfield matched
+      return($arrayref);    # No keyfield matched
     }
   }
 
-  return($HashRef);
+  return($hashref);
 }
 
 
 ##############################################################################
-# Sub: ValueToXML()
+# Method: value_to_xml()
 #
 # Helper routine for XMLout() - recurses through a data structure building up
 # and returning an XML representation of that structure as a string.
 # 
 # Arguments expected are:
-# - a hashref of option settings (args to XMLin() merged with defaults)
 # - the data structure to be encoded (usually a reference)
 # - the XML tag name to use for this item
 # - a hashref of references already encoded (to detect recursive structures)
 # - a string of spaces for use as the current indent level
 #
 
-sub ValueToXML {
-  my($Options, $ref, $name, $encoded, $indent) = @_;
+sub value_to_xml {
+  my $self = shift;;
+
+
+  # Grab the other arguments
+
+  my($ref, $name, $encoded, $indent) = @_;
 
   my $named = (defined($name) and $name ne '' ? 1 : 0);
+
+  my $nl = "\n";
 
   if(ref($ref)) {
     croak "recursive data structures not supported" if($encoded->{$ref});
@@ -776,23 +872,31 @@ sub ValueToXML {
     if($named) {
       return(join('',
               $indent, '<', $name, '>',
-	      ($Options->{noescape} ? $ref : EscapeValue($ref)),
-              '</', $name, ">\n"
+	      ($self->{opt}->{noescape} ? $ref : $self->escape_value($ref)),
+              '</', $name, ">", $nl
 	    ));
     }
     else {
-      return("$ref\n");
+      return("$ref$nl");
     }
   }
 
-  # Unfold hash to array if possible (skip for root elements)
+  # Unfold hash to array if possible
 
-  if(ref($ref) eq 'HASH' and $Options->{keyattr} and $indent) {
-    $ref = HashToArray($Options, $name, $ref);
+  if(ref($ref) eq 'HASH'               # It is a hash
+     and %$ref                         # and it's not empty
+     and $self->{opt}->{keyattr}       # and folding is enabled
+     and $indent                       # and its not the root element
+  ) {
+    $ref = $self->hash_to_array($name, $ref);
   }
 
+  
   my @result = ();
   my($key, $value);
+
+
+  # Handle hashrefs
 
   if(ref($ref) eq 'HASH') {
     my @nested = ();
@@ -801,61 +905,78 @@ sub ValueToXML {
       push @result, $indent, '<', $name;
     }
 
-    while(($key, $value) = each(%$ref)) {
-      next if(substr($key, 0, 1) eq '-');
-      if(!ref($value)) {
-	$value = EscapeValue($value) unless($Options->{noescape});
-        if($key eq $Options->{contentkey}) {
-	  $text_content = $value;
+    if(%$ref) {
+      while(($key, $value) = each(%$ref)) {
+	next if(substr($key, 0, 1) eq '-');
+	if(!defined($value)) {
+	  unless(exists($self->{opt}->{suppressempty})
+	     and !defined($self->{opt}->{suppressempty})
+	  ) {
+	    carp 'Use of uninitialized value';
+	  }
+	  $value = {};
+	}
+	if(ref($value)  or  $self->{opt}->{noattr}) {
+	  push @nested,
+	    $self->value_to_xml($value, $key, $encoded, "$indent  ");
 	}
 	else {
-	  push @result, ' ', $key, '="', $value , '"';
+	  $value = $self->escape_value($value) unless($self->{opt}->{noescape});
+	  if($key eq $self->{opt}->{contentkey}) {
+	    $text_content = $value;
+	  }
+	  else {
+	    push @result, ' ', $key, '="', $value , '"';
+	  }
 	}
       }
-      else {
-	push @nested, ValueToXML($Options, $value, $key, $encoded, "$indent  ");
-      }
+    }
+    else {
+      $text_content = '';
     }
 
-    if(@nested  or  $text_content) {
+    if(@nested  or  defined($text_content)) {
       if($named) {
         push @result, ">";
-	if($text_content) {
+	if(defined($text_content)) {
 	  push @result, $text_content;
 	  $nested[0] =~ s/^\s+// if(@nested);
 	}
 	else {
-	  push @result, "\n";
+	  push @result, $nl;
 	}
 	if(@nested) {
 	  push @result, @nested, $indent;
 	}
-	push @result, '</', $name, ">\n";
+	push @result, '</', $name, ">", $nl;
       }
       else {
         push @result, @nested;             # Special case if no root elements
       }
     }
     else {
-      push @result, " />\n";
+      push @result, " />", $nl;
     }
   }
+
+
+  # Handle arrayrefs
 
   elsif(ref($ref) eq 'ARRAY') {
     foreach $value (@$ref) {
       if(!ref($value)) {
         push @result,
-               $indent, '<', $name, '>',
-	       ($Options->{noescape} ? $value : EscapeValue($value)),
-               '</', $name, ">\n";
+	     $indent, '<', $name, '>',
+	     ($self->{opt}->{noescape} ? $value : $self->escape_value($value)),
+	     '</', $name, ">\n";
       }
       elsif(ref($value) eq 'HASH') {
-	push @result, ValueToXML($Options, $value, $name, $encoded, $indent);
+	push @result, $self->value_to_xml($value, $name, $encoded, $indent);
       }
       else {
 	push @result,
 	       $indent, '<', $name, ">\n",
-	       ValueToXML($Options, $value, 'anon', $encoded, "$indent  "),
+	       $self->value_to_xml($value, 'anon', $encoded, "$indent  "),
 	       $indent, '</', $name, ">\n";
       }
     }
@@ -870,13 +991,15 @@ sub ValueToXML {
 
 
 ##############################################################################
-# Sub: EscapeValue()
+# Method: escape_value()
 #
 # Helper routine for automatically escaping values for XMLout().
 # Expects a scalar data value.  Returns escaped version.
 #
 
-sub EscapeValue {
+sub escape_value {
+  my $self = shift;
+
   my($data) = @_;
 
   $data =~ s/&/&amp;/sg;
@@ -889,37 +1012,38 @@ sub EscapeValue {
 
 
 ##############################################################################
-# Sub: HashToArray()
+# Method: hash_to_array()
 #
-# Helper routine for ValueToXML().
+# Helper routine for value_to_xml().
 # Attempts to 'unfold' a hash of hashes into an array of hashes.  Returns a
 # reference to the array on success or the original hash if unfolding is
 # not possible.
 #
 
-sub HashToArray {
-  my $Options = shift;
-  my $Parent  = shift;
-  my $HashRef = shift;
+sub hash_to_array {
+  my $self    = shift;
+  my $parent  = shift;
+  my $hashref = shift;
 
-  my $ArrayRef = [];
+  my $arrayref = [];
 
   my($key, $value);
 
-  foreach $key (keys(%$HashRef)) {
-    $value = $HashRef->{$key};
-    return($HashRef) unless(ref($value) eq 'HASH');
+  foreach $key (keys(%$hashref)) {
+    $value = $hashref->{$key};
+    return($hashref) unless(ref($value) eq 'HASH');
 
-    if(ref($Options->{keyattr}) eq 'HASH') {
-      return($HashRef) unless(defined($Options->{keyattr}->{$Parent}));
-      push(@$ArrayRef, { $Options->{keyattr}->{$Parent}->[0] => $key, %$value });
+    if(ref($self->{opt}->{keyattr}) eq 'HASH') {
+      return($hashref) unless(defined($self->{opt}->{keyattr}->{$parent}));
+      push(@$arrayref, { $self->{opt}->{keyattr}->{$parent}->[0] => $key,
+                         %$value });
     }
     else {
-      push(@$ArrayRef, { $Options->{keyattr}->[0] => $key, %$value });
+      push(@$arrayref, { $self->{opt}->{keyattr}->[0] => $key, %$value });
     }
   }
 
-  return($ArrayRef);
+  return($arrayref);
 }
 
 1;
@@ -1035,6 +1159,8 @@ file in each directory in the searchpath (see L<"OPTIONS"> below).  eg:
 
   $ref = XMLin('/etc/params.xml');
 
+Note, the filename '-' can be used to parse from STDIN.
+
 =item undef
 
 If there is no XML specifier, C<XMLin()> will check the script directory and
@@ -1107,6 +1233,22 @@ becomes more tenuous).  If you find yourself repeatedly having to specify
 the same options, you might like to investigate L<"OPTIONAL OO INTERFACE">
 below.
 
+Because there are so many options, it's hard for new users to know which ones
+are important, so here are the two you really need to know about:
+
+=over 4
+
+=item *
+
+check out 'forcearray' because you'll almost certainly want to turn it on
+
+=item *
+
+make sure you know what the 'keyattr' option does and what its default value
+is because it may surprise you otherwise
+
+=back
+
 Both C<XMLin()> and C<XMLout()> expect a single argument followed by a list of
 options.  An option takes the form of a 'name => value' pair.  The options
 listed below are marked with 'B<in>' if they are recognised by C<XMLin()> and
@@ -1169,11 +1311,16 @@ to an empty list will disable the array folding feature.
 
 =item keyattr => { list } (B<in+out>)
 
-This alternative method of specifiying the key attributes allows more fine grained
-control over which elements are folded and on which attributes.  For example the 
-option 'keyattr => { package => 'id' } will cause any package elements to be folded
-on the 'id' attribute.  No other elements which have an 'id' attribute will be
-folded at all. 
+This alternative method of specifiying the key attributes allows more fine
+grained control over which elements are folded and on which attributes.  For
+example the option 'keyattr => { package => 'id' } will cause any package
+elements to be folded on the 'id' attribute.  No other elements which have an
+'id' attribute will be folded at all. 
+
+Note: C<XMLin()> will generate a warning if this syntax is used and an element
+which does not have the specified key attribute is encountered (eg: a 'package'
+element without an 'id' attribute, to use the example above).  Warnings will
+only be generated if B<-w> is in force.
 
 Two further variations are made possible by prefixing a '+' or a '-' character
 to the attribute name:
@@ -1272,6 +1419,23 @@ This alternative form of the 'forcearray' option allows you to specify a list
 of element names which should always be forced into an array representation,
 rather than the 'all or nothing' approach above.
 
+=item noattr => 1 (B<in+out>)
+
+When used with C<XMLout()>, the generated XML will contain no attributes.
+All hash key/values will be represented as nested elements instead.
+
+When used with C<XMLin()>, any attributes in the XML will be ignored.
+
+=item suppressempty => 1 | '' | undef (B<in>)
+
+This option controls what C<XMLin()> should do with empty elements (no
+attributes and no content).  The default behaviour is to represent them as
+empty hashes.  Setting this option to a true value (eg: 1) will cause empty
+elements to be skipped altogether.  Setting the option to 'undef' or the empty
+string will cause empty elements to be represented as the undefined value or
+the empty string respectively.  The latter two alternatives are a little
+easier to test for in your code than a hash with no keys.
+
 =item cache => [ cache scheme(s) ] (B<in>)
 
 Because loading the B<XML::Parser> module and parsing an XML file can consume a
@@ -1343,12 +1507,33 @@ produce XML with no root elements.  In most cases the resulting XML fragment
 will not be 'well formed' and therefore could not be read back in by C<XMLin()>.
 Nevertheless, the option has been found to be useful in certain circumstances.
 
-=item contentkey => 'keyname' (B<in+out>)
+=item forcecontent (B<in>)
 
 When C<XMLin()> parses elements which have text content as well as attributes,
 the text content must be represented as a hash value rather than a simple
-scalar.  This option allows you to specify a name for the hash key to override
-the default 'content'.  So for example:
+scalar.  This option allows you to force text content to always parse to
+a hash value even when there are no attributes.  So for example:
+
+  XMLin('<opt><x>text1</x><y a="2">text2</y></opt>', forcecontent => 1)
+
+will parse to:
+
+  {
+    'x' => {           'content' => 'text1' },
+    'y' => { 'a' => 2, 'content' => 'text2' }
+  }
+
+instead of:
+
+  {
+    'x' => 'text1',
+    'y' => { 'a' => 2, 'content' => 'text2' }
+  }
+
+=item contentkey => 'keyname' (B<in+out>)
+
+When text content is parsed to a hash value, this option let's you specify a
+name for the hash key to override the default 'content'.  So for example:
 
   XMLin('<opt one="1">Text</opt>', contentkey => 'text')
 
@@ -1387,19 +1572,43 @@ By default, C<XMLout()> will translate the characters 'E<lt>', 'E<gt>', '&' and
 suppress escaping (presumably because you've already escaped the data in some
 more sophisticated manner).
 
+=item parseropts => [ XML::Parser Options ] (B<in>)
+
+Use this option to specify parameters that should be passed to the constructor
+of the underlying XML::Parser object.  For example to turn on the namespace processing mode, you could say:
+
+  XMLin($xml, parseropts => [ Namespaces => 1 ])
+
 =back
 
 =head1 OPTIONAL OO INTERFACE
 
+The procedural interface is both simple and convenient however there are a
+couple of reasons why you might prefer to use the object oriented (OO)
+interface:
+
+=over 4
+
+=item *
+
+to define a set of default values which should be used on all subsequent calls
+to C<XMLin()> or C<XMLout()>
+
+=item *
+
+to override methods in B<XML::Simple> to provide customised behaviour
+
+=back
+
 The default values for the options described above are unlikely to suit
-everyone.  The object oriented interface allows you to effectively override
-B<XML::Simple>'s defaults with your preferred values.  It works like this:
+everyone.  The OO interface allows you to effectively override B<XML::Simple>'s
+defaults with your preferred values.  It works like this:
 
 First create an XML::Simple parser object with your preferred defaults:
 
   my $xs = new XML::Simple(forcearray => 1, keeproot => 1);
 
-Now call C<XMLin()> or C<XMLout()> as a method of that object:
+then call C<XMLin()> or C<XMLout()> as a method of that object:
 
   my $ref = $xs->XMLin($xml);
   my $xml = $xs->XMLout($ref);
@@ -1407,6 +1616,11 @@ Now call C<XMLin()> or C<XMLout()> as a method of that object:
 You can also specify options when you make the method calls and these values
 will be merged with the values specified when the object was created.  Values
 specified in a method call take precedence.
+
+Overriding methods is a more advanced topic but might be useful if for example
+you wished to provide an alternative routine for escaping character data (the
+escape_value method) or for building the initial parse tree (the build_tree
+method).
 
 =head1 ERROR HANDLING
 
@@ -1542,7 +1756,24 @@ arrayref will be returned directly rather than the usual hashref:
       [ 'R2C1', 'R2C2' ]
     ]
 
+Elements which only contain text content will simply be represented as a
+scalar.  Where an element has both attributes and text content, the element
+will be represented as a hashref with the text content in the 'content' key:
 
+  <opt>
+    <one>first</one>
+    <two attr="value">second</two>
+  </opt>
+
+  {
+    'one' => 'first',
+    'two' => { 'attr' => 'value', 'content' => 'second' }
+  }
+
+Mixed content (elements which contain both text content and nested elements)
+will be not be represented in a useful way - element order and significant
+whitespace will be lost.  If you need to work with mixed content, then
+XML::Simple is not the right tool for your job - check out the next section.
 
 =head1 WHERE TO FROM HERE?
 
@@ -1565,15 +1796,16 @@ defeat even these techniques.
 
 =item *
 
-XML elements containing both text content and nested elements (eg: marked-up
-text) are not parsed in a useful way.
-
-=item *
-
 The API offers little control over the output of C<XMLout()>.  In particular,
 it is not especially likely that feeding the output from C<XMLin()> into
 C<XMLout()> will reproduce the original XML (although passing the output from
 C<XMLout()> into C<XMLin()> should reproduce the original data structure).
+
+=item *
+
+C<XMLout()> cannot produce well formed HTML unless you feed it with care - hash
+keys must conform to XML element naming rules and undefined values should be
+avoided.
 
 =item *
 
@@ -1600,9 +1832,10 @@ B<XML::Simple> is built on top of B<XML::Parser>, so if you have B<XML::Simple>
 working you already have B<XML::Parser> installed.  This is a comprehensive,
 fast, industrial strength (non-validating) parsing tool built on top of James
 Clark's 'expat' library.  It does support converting XML into a Perl tree
-structure but for arbritrarily large documents you're probably better off
-defining handler routines for B<XML::Parser> to call as each element is parsed.
-The distribution includes a number of sample applications.
+structure (with full support for mixed content) but for arbritrarily large
+documents you're probably better off defining handler routines for
+B<XML::Parser> to call as each element is parsed.  The distribution includes a
+number of sample applications.
 
 =item XML::DOM
 
@@ -1634,9 +1867,23 @@ implementation of the SAX API.  It also include B<XML::PatAct> modules for
 processing XML by defining patterns and associating them with actions.  For more
 details see http://bitsko.slc.ut.us/libxml-perl/ .
 
+=item XML::PYX
+
+B<XML::PYX> allows you to apply Unix command pipelines (using grep, sed etc) to
+filter or transform XML files.  Ideally suited for tasks such as extracting all
+text content or stripping out all occurrences of a particular tag without
+having to write a Perl script at all.  It can also be used for transforming
+HTML to XHTML.
+
+=item XML::RAX
+
+If you wish to process XML files containing a series of 'records', B<XML::RAX>
+provides a simple purpose-designed interface.  If it still hasn't made it to
+CPAN, try: http://www.dancentury.com/robh/
+
 =item XML::Writer
 
-B<XML::Writer> is a helper module for Perl programs that write a XML documents.
+B<XML::Writer> is a helper module for Perl programs that write XML documents.
 
 =item XML::Dumper
 
@@ -1652,7 +1899,7 @@ http://www.perlxml.com/faq/perl-xml-faq.html
 
 =head1 STATUS
 
-This version (1.04) is the current stable version.  
+This version (1.05) is the current stable version.  
 
 =head1 SEE ALSO
 

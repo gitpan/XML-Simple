@@ -1,6 +1,70 @@
 use strict;
 
-BEGIN { print "1..25\n"; }
+##############################################################################
+# Derived version of XML::Simple that returns everything in lower case
+##############################################################################
+
+package XML::Simple::UC;
+
+use vars qw(@ISA);
+@ISA = qw(XML::Simple);
+
+sub build_tree {
+  my $self = shift;
+
+  my $tree = $self->SUPER::build_tree(@_);
+
+  ($tree) = uctree($tree);
+
+  return($tree);
+}
+
+sub uctree {
+  foreach my $i (0..$#_) {
+    my $x = $_[$i];
+    if(ref($x) eq 'ARRAY') {
+      $_[$i] = [ uctree(@$x) ];
+    }
+    elsif(ref($x) eq 'HASH') {
+      $_[$i] = { uctree(%$x) };
+    }
+    else {
+      $_[$i] = uc($x);
+    }
+  }
+  return(@_);
+}
+
+
+##############################################################################
+# Derived version of XML::Simple that uses CDATA sections for escaping
+##############################################################################
+
+package XML::Simple::CDE;
+
+use vars qw(@ISA);
+@ISA = qw(XML::Simple);
+
+sub escape_value {
+  my $self = shift;
+
+  my($data) = @_;
+
+  if($data =~ /[&<>"]/) {
+    $data = '<![CDATA[' . $data . ']]>';
+  }
+
+  return($data);
+}
+
+
+##############################################################################
+# Start of the test script itself
+##############################################################################
+
+package main;
+
+BEGIN { print "1..27\n"; }
 
 my $t = 1;
 
@@ -155,7 +219,7 @@ my $exp1 = {
 };
 
 my $ref1 = $xs1->XMLin($xml);
-ok(4, DataCompare($ref1, $exp1));    # Parsed to what we expected
+ok(4, DataCompare($ref1, $exp1));       # Parsed to what we expected
 
 
 # Try using the other object
@@ -167,15 +231,15 @@ my $exp2 = {
     'cddbid' => '960b750c',
     'id' => '9362-45055-2',
     'track' => [
-      { 'number' => 1, 'content' => 'Drive' },
-      { 'number' => 2, 'content' => 'Try Not To Breathe' },
-      { 'number' => 3, 'content' => 'The Sidewinder Sleeps Tonite' },
-      { 'number' => 4, 'content' => 'Everybody Hurts' },
-      { 'number' => 5, 'content' => 'New Orleans Instrumental No. 1' },
-      { 'number' => 6, 'content' => 'Sweetness Follows' },
-      { 'number' => 7, 'content' => 'Monty Got A Raw Deal' },
-      { 'number' => 8, 'content' => 'Ignoreland' },
-      { 'number' => 9, 'content' => 'Star Me Kitten' },
+      { 'number' => 1,  'content' => 'Drive' },
+      { 'number' => 2,  'content' => 'Try Not To Breathe' },
+      { 'number' => 3,  'content' => 'The Sidewinder Sleeps Tonite' },
+      { 'number' => 4,  'content' => 'Everybody Hurts' },
+      { 'number' => 5,  'content' => 'New Orleans Instrumental No. 1' },
+      { 'number' => 6,  'content' => 'Sweetness Follows' },
+      { 'number' => 7,  'content' => 'Monty Got A Raw Deal' },
+      { 'number' => 8,  'content' => 'Ignoreland' },
+      { 'number' => 9,  'content' => 'Star Me Kitten' },
       { 'number' => 10, 'content' => 'Man On The Moon' },
       { 'number' => 11, 'content' => 'Nightswimming' },
       { 'number' => 12, 'content' => 'Find The River' }
@@ -184,7 +248,7 @@ my $exp2 = {
 };
 
 my $ref2 = $xs2->XMLin($xml);
-ok(5, DataCompare($ref2, $exp2));    # Parsed to what we expected
+ok(5, DataCompare($ref2, $exp2));       # Parsed to what we expected
 
 
 
@@ -192,7 +256,7 @@ ok(5, DataCompare($ref2, $exp2));    # Parsed to what we expected
 
 $ref1 = $xs1->XMLin($xml, keyattr => [], forcearray => 0);
 
-ok(6, DataCompare($ref1, {          # Parsed to what we expected
+ok(6, DataCompare($ref1, {              # Parsed to what we expected
   'cddatabase' => {
     'disc' => {
       'album' => 'Automatic For The People',
@@ -200,15 +264,15 @@ ok(6, DataCompare($ref1, {          # Parsed to what we expected
       'artist' => 'R.E.M.',
       'cddbid' => '960b750c',
       'track' => [
-        { 'number' => 1, 'title' => 'Drive' },
-        { 'number' => 2, 'title' => 'Try Not To Breathe' },
-        { 'number' => 3, 'title' => 'The Sidewinder Sleeps Tonite' },
-        { 'number' => 4, 'title' => 'Everybody Hurts' },
-        { 'number' => 5, 'title' => 'New Orleans Instrumental No. 1' },
-        { 'number' => 6, 'title' => 'Sweetness Follows' },
-        { 'number' => 7, 'title' => 'Monty Got A Raw Deal' },
-        { 'number' => 8, 'title' => 'Ignoreland' },
-        { 'number' => 9, 'title' => 'Star Me Kitten' },
+        { 'number' => 1,  'title' => 'Drive' },
+        { 'number' => 2,  'title' => 'Try Not To Breathe' },
+        { 'number' => 3,  'title' => 'The Sidewinder Sleeps Tonite' },
+        { 'number' => 4,  'title' => 'Everybody Hurts' },
+        { 'number' => 5,  'title' => 'New Orleans Instrumental No. 1' },
+        { 'number' => 6,  'title' => 'Sweetness Follows' },
+        { 'number' => 7,  'title' => 'Monty Got A Raw Deal' },
+        { 'number' => 8,  'title' => 'Ignoreland' },
+        { 'number' => 9,  'title' => 'Star Me Kitten' },
         { 'number' => 10, 'title' => 'Man On The Moon' },
         { 'number' => 11, 'title' => 'Nightswimming' },
         { 'number' => 12, 'title' => 'Find The River' }
@@ -221,7 +285,7 @@ ok(6, DataCompare($ref1, {          # Parsed to what we expected
 # Confirm that default options in object still work as expected
 
 $ref1 = $xs1->XMLin($xml);
-ok(7, DataCompare($ref1, $exp1));    # Still parsed to what we expected
+ok(7, DataCompare($ref1, $exp1));       # Still parsed to what we expected
 
 
 # Confirm they work for output too
@@ -230,8 +294,8 @@ $_ = $xs1->XMLout($ref1);
 
 ok(8,  s{<track number="1">Drive</track>}                         {<NEST/>});
 ok(9,  s{<track number="2">Try Not To Breathe</track>}            {<NEST/>});
-ok(10,  s{<track number="3">The Sidewinder Sleeps Tonite</track>}  {<NEST/>});
-ok(11,  s{<track number="4">Everybody Hurts</track>}               {<NEST/>});
+ok(10, s{<track number="3">The Sidewinder Sleeps Tonite</track>}  {<NEST/>});
+ok(11, s{<track number="4">Everybody Hurts</track>}               {<NEST/>});
 ok(12, s{<track number="5">New Orleans Instrumental No. 1</track>}{<NEST/>});
 ok(13, s{<track number="6">Sweetness Follows</track>}             {<NEST/>});
 ok(14, s{<track number="7">Monty Got A Raw Deal</track>}          {<NEST/>});
@@ -246,3 +310,40 @@ ok(22, s{id="9362-45055-2"}{ATTR});
 ok(23, s{artist="R.E.M."}  {ATTR});
 ok(24, s{<disc(\s+ATTR){3}\s*>(\s*<NEST/>){13}\s*</disc>}{<DISC/>}s);
 ok(25, m{^\s*<(cddatabase)>\s*<DISC/>\s*</\1>\s*$});
+
+
+# Check that overriding build_tree() method works
+
+$xml = q(<opt>
+  <server>
+    <name>Apollo</name>
+    <address>10 Downing Street</address>
+  </server>
+</opt>
+);
+
+my $xsp = new XML::Simple::UC();
+$ref1 = $xsp->XMLin($xml);
+ok(26, DataCompare($ref1, {
+  'SERVER' => {
+    'NAME' => 'APOLLO',
+    'ADDRESS' => '10 DOWNING STREET'
+  }
+}));
+
+
+# Check that overriding escape_value() method works
+
+my $ref = {
+  'server' => {
+    'address' => '12->14 "Puf&Stuf" Drive'
+  }
+};
+
+$xsp = new XML::Simple::CDE();
+
+$_ = $xsp->XMLout($ref);
+
+ok(27, m{<opt>\s*
+ <server\s+address="<!\[CDATA\[12->14\s+"Puf&Stuf"\s+Drive\]\]>"\s*/>\s*
+</opt>}xs);
