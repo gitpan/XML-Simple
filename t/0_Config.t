@@ -1,4 +1,4 @@
-# $Id: 0_Config.t,v 1.4 2002/11/06 07:57:53 grantm Exp $
+# $Id: 0_Config.t,v 1.5 2003/05/18 08:43:13 grantm Exp $
 # vim: syntax=perl
 
 use strict;

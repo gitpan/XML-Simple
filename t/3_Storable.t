@@ -1,9 +1,12 @@
-# $Id: 3_Storable.t,v 1.6 2003/04/10 10:20:08 grantm Exp $
+# $Id: 3_Storable.t,v 1.7 2003/05/18 08:43:13 grantm Exp $
 # vim: syntax=perl
 
 use strict;
 use Test::More;
 use File::Spec;
+
+$^W = 1;
+
 
 eval { require Storable; };
 unless($INC{'Storable.pm'}) {

@@ -1,9 +1,12 @@
-# $Id: 4_MemShare.t,v 1.3 2002/10/16 09:43:35 grantm Exp $
+# $Id: 4_MemShare.t,v 1.4 2003/05/18 08:43:13 grantm Exp $
 # vim: syntax=perl
 
 use strict;
 use Test::More;
 use File::Spec;
+
+$^W = 1;
+
 
 # Initialise filenames and check they're there
 

@@ -1,11 +1,14 @@
-# $Id: 2_XMLout.t,v 1.7 2003/04/16 10:19:24 grantm Exp $
+# $Id: 2_XMLout.t,v 1.8 2003/05/18 08:42:30 grantm Exp $
 # vim: syntax=perl
 
 use strict;
 use Test::More;
 use IO::File;
 
+$^W = 1;
+
 plan tests => 192;
+
 
 ##############################################################################
 #                   S U P P O R T   R O U T I N E S

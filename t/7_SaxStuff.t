@@ -1,10 +1,13 @@
-# $Id: 7_SaxStuff.t,v 1.2 2002/10/16 09:43:35 grantm Exp $
+# $Id: 7_SaxStuff.t,v 1.3 2003/05/18 08:43:13 grantm Exp $
 # vim: syntax=perl
 
 use strict;
 use Test::More;
 use File::Spec;
 use IO::File;
+
+$^W = 1;
+
 
 BEGIN {
   unshift @INC, File::Spec->catfile('t', 'lib');

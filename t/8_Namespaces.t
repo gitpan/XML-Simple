@@ -1,10 +1,13 @@
-# $Id: 8_Namespaces.t,v 1.4 2002/10/16 09:43:35 grantm Exp $
+# $Id: 8_Namespaces.t,v 1.5 2003/05/18 08:43:14 grantm Exp $
 # vim: syntax=perl
 
 use strict;
 use Test::More;
 use File::Spec;
 use IO::File;
+
+$^W = 1;
+
 
 eval { require XML::SAX; };
 if($@) {

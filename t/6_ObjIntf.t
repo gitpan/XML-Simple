@@ -1,7 +1,10 @@
-# $Id: 6_ObjIntf.t,v 1.5 2003/04/10 10:20:08 grantm Exp $
+# $Id: 6_ObjIntf.t,v 1.6 2003/05/18 08:43:13 grantm Exp $
 # vim: syntax=perl
 
 use strict;
+
+$^W = 1;
+
 use Test::More tests => 33;
 
 ##############################################################################
