@@ -1,3 +1,5 @@
+# $Id: 5_MemCopy.t,v 1.3 2002/02/14 21:33:44 grantm Exp $
+
 use strict;
 
 use File::Spec;
@@ -200,6 +202,7 @@ open(FILE, ">$XMLFile");              # Write some new data to the XML file
 print FILE qq(<opt one="1" two="2"></opt>\n);
 close(FILE);
 PassTime(time());                     # Ensure current time later than file time
+
 
                                       # Parse again with caching enabled
 $opt = XMLin($XMLFile, cache => 'memcopy');
