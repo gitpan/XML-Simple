@@ -1,4 +1,4 @@
-# $Id: 7_SaxStuff.t,v 1.4 2004/02/29 09:49:18 grantm Exp $
+# $Id: 7_SaxStuff.t,v 1.5 2005/01/29 04:17:42 grantm Exp $
 # vim: syntax=perl
 
 use strict;
@@ -101,7 +101,11 @@ my $xml = '';
 $XML::Simple::PREFERRED_PARSER = '';
 
 ok(CopyFile($SrcFile, $XMLFile), 'created source XML file');
-unlink($CacheFile);
+if ('VMS' eq $^O) {
+  1 while (unlink($CacheFile));
+} else {
+  unlink($CacheFile);
+}
 ok(! -e $CacheFile, 'deleted old cache files');
 
 # Pass in a filename to check parse_uri()

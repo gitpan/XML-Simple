@@ -1,4 +1,4 @@
-# $Id: 4_MemShare.t,v 1.4 2003/05/18 08:43:13 grantm Exp $
+# $Id: 4_MemShare.t,v 1.5 2005/01/29 04:17:42 grantm Exp $
 # vim: syntax=perl
 
 use strict;
@@ -113,7 +113,11 @@ $t0 = (stat($XMLFile))[9];         # Remember its timestamp
 my $opt = XMLin($XMLFile, cache => 'memshare');
 is_deeply($opt, $Expected, 'parsed expected data from file');
 
-unlink($XMLFile);
+if ('VMS' eq $^O) {
+  1 while (unlink($XMLFile));
+} else {
+  unlink($XMLFile);
+}
 ok(! -e $XMLFile, 'deleted the XML source file');
 open(FILE, ">$XMLFile");              # Re-create it (empty)
 close(FILE);

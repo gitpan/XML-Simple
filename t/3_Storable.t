@@ -1,4 +1,4 @@
-# $Id: 3_Storable.t,v 1.9 2004/02/29 09:49:18 grantm Exp $
+# $Id: 3_Storable.t,v 1.10 2005/01/29 04:17:42 grantm Exp $
 # vim: syntax=perl
 
 use strict;
@@ -146,7 +146,11 @@ is_deeply($opt, $Expected, 'parsed in expected value again');
 $t2 = (stat($CacheFile))[9];
 isnt($t1, $t2, 'and this time the cache timestamp has changed');
 
-unlink($XMLFile);
+if ('VMS' eq $^O) {
+  1 while (unlink($XMLFile));
+} else {
+  unlink($XMLFile);
+}
 ok(! -e $XMLFile, 'deleted the cache file');
 open(FILE, ">$XMLFile");              # Re-create it (empty)
 close(FILE);
