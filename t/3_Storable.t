@@ -1,4 +1,4 @@
-# $Id: 3_Storable.t,v 1.3 2002/02/05 22:28:31 grantm Exp $
+# $Id: 3_Storable.t,v 1.1.1.1.2.2 2002/02/09 22:13:34 grantm Exp $
 
 use strict;
 
@@ -206,6 +206,7 @@ ok(11, ! -e $XMLFile);                # Original XML file is gone
 open(FILE, ">$XMLFile");              # Re-create it (empty)
 close(FILE);
 PassTime((stat($XMLFile))[9]);        # But ensure cache file is newer
+unlink($CacheFile);                   # Seems to be rqd for test on Win32
 Storable::nstore($Expected, $CacheFile);
 $opt = XMLin($XMLFile, cache => 'storable');
 ok(12, DataCompare($opt, $Expected)); # Got what we expected from the cache
