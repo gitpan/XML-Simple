@@ -1,4 +1,4 @@
-# $Id: 6_ObjIntf.t,v 1.6 2003/05/18 08:43:13 grantm Exp $
+# $Id: 6_ObjIntf.t,v 1.7 2003/05/20 08:49:31 grantm Exp $
 # vim: syntax=perl
 
 use strict;
@@ -344,7 +344,7 @@ $xml = q(<opt>
   <file name="debug_file">${log_dir}/appname.dbg</file>
 </opt>);
 
-my $opt = $xs1->XMLin($xml);
+$opt = $xs1->XMLin($xml);
 is_deeply($opt, {
   file => {
     config_file => '/etc/appname.conf',

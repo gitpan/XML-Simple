@@ -1,4 +1,4 @@
-# $Id: 0_Config.t,v 1.5 2003/05/18 08:43:13 grantm Exp $
+# $Id: 0_Config.t,v 1.6 2003/05/20 08:50:10 grantm Exp $
 # vim: syntax=perl
 
 use strict;
@@ -7,7 +7,7 @@ use Test::More tests => 1;
 
 # Build up a list of installed modules
 
-my @mod_list = qw(XML::Simple XML::Parser XML::SAX);
+my @mod_list = qw(XML::Simple Storable XML::Parser XML::SAX);
 
 
 # If XML::SAX is installed, add a list of installed SAX parsers

@@ -1,4 +1,4 @@
-# $Id: 3_Storable.t,v 1.7 2003/05/18 08:43:13 grantm Exp $
+# $Id: 3_Storable.t,v 1.8 2003/05/20 08:48:08 grantm Exp $
 # vim: syntax=perl
 
 use strict;
@@ -12,6 +12,10 @@ eval { require Storable; };
 unless($INC{'Storable.pm'}) {
   plan skip_all => 'no Storable.pm';
 }
+unless(UNIVERSAL::can(Storable => 'lock_nstore')) {
+  plan skip_all => 'Storable.pm is too old - no file locking support';
+}
+
 
 # Initialise filenames and check they're there
 

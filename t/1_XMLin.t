@@ -1,4 +1,4 @@
-# $Id: 1_XMLin.t,v 1.13 2003/05/18 08:43:13 grantm Exp $
+# $Id: 1_XMLin.t,v 1.14 2003/05/20 08:49:31 grantm Exp $
 # vim: syntax=perl
 
 use strict;
@@ -25,8 +25,8 @@ my $last_warning = '';
 $@ = '';
 eval "use XML::Simple;";
 is($@, '', 'Module compiled OK');
-unless($XML::Simple::VERSION eq '2.06') {
-  diag("Warning: XML::Simple::VERSION = $XML::Simple::VERSION (expected 2.06)");
+unless($XML::Simple::VERSION eq '2.07') {
+  diag("Warning: XML::Simple::VERSION = $XML::Simple::VERSION (expected 2.07)");
 }
 
 
@@ -337,7 +337,7 @@ is_deeply($opt, $target, "same again but with '+' prefix to copy keys");
 
 # Confirm the stringifying references bug is fixed
 
-my $xml = q(
+$xml = q(
   <opt>
     <item>
       <name><firstname>Bob</firstname></name>
