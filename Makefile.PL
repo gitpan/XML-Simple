@@ -1,6 +1,17 @@
-# $Id: Makefile.PL,v 1.6 2003/09/09 09:37:15 grantm Exp $
+# $Id: Makefile.PL,v 1.7 2004/11/17 08:43:52 grantm Exp $
 
 use ExtUtils::MakeMaker;
+
+BEGIN {
+  if($] < 5.006) {
+    warn
+      qq(This version of XML::Simple requires Perl version 5.6 or better.\n) .
+      qq(You might prefer to install an older version of XML::Simple\n\n) .
+      qq(  perl -MCPAN -e "install 'G/GR/GRANTM/XML-Simple-1.08.tar.gz'"\n\n);
+  }
+}
+
+require 5.006;
 
 my $make_params = {
     'NAME'          => 'XML::Simple',
@@ -10,10 +21,8 @@ my $make_params = {
                          Test::Simple          => 0.41,
                        },
     'dist'          => { COMPRESS => 'gzip --best', SUFFIX => 'gz' },
-    ($] >= 5.005 ? (
-      'AUTHOR'        => 'Grant McLean <grantm@cpan.org>',
-      'ABSTRACT_FROM' => 'lib/XML/Simple.pm',
-    ) : () )
+    'AUTHOR'        => 'Grant McLean <grantm@cpan.org>',
+    'ABSTRACT_FROM' => 'lib/XML/Simple.pm',
 };
 
 print "Checking installed modules ...\n";

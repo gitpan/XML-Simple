@@ -1,4 +1,4 @@
-# $Id: 2_XMLout.t,v 1.12 2004/04/05 09:12:51 grantm Exp $
+# $Id: 2_XMLout.t,v 1.14 2004/11/17 08:36:49 grantm Exp $
 # vim: syntax=perl
 
 use strict;
@@ -7,7 +7,7 @@ use IO::File;
 
 $^W = 1;
 
-plan tests => 190;
+plan tests => 196;
 
 
 ##############################################################################
@@ -654,21 +654,20 @@ like($_, qr{^\s*<(\w+)\s*>\s*<nnn>\s*<nnn>\s*</\1\s*>\s*$}, 'document OK');
   local($^W) = 1;
   my $warn = '';
   local $SIG{__WARN__} = sub { $warn = $_[0] };
-  $_ = eval {
-    $ref = { 'tag' => undef };
-    XMLout($ref);
-  };
+  $ref = { 'one' => 1, 'two' => undef };
+  my $expect = qr/^<\w+(\s+one="1"|\s+two=""){2}/;
+
+  $_ = XMLout($ref);
   like($warn, qr/Use of uninitialized value/, 
     'caught warning re uninitialised value');
+  like($_, $expect, 'undef maps to any empty attribute by default');
 
   # unless warnings are disabled
   $^W = 0;
   $warn = '';
-  $_ = eval {
-    $ref = { 'tag' => undef };
-    XMLout($ref);
-  };
+  $_ = XMLout($ref);
   is($warn, '', 'no warning re uninitialised value if warnings off');
+  like($_, $expect, 'undef still maps to any empty attribute');
 }
 
 
@@ -678,6 +677,14 @@ $ref = { 'tag' => undef };
 $_ = XMLout($ref, suppressempty => undef);
 like($_, qr{^\s*<(\w*)\s*>\s*<tag\s*></tag\s*>\s*</\1\s*>\s*$}s,
   'uninitialiased values successfully mapped to empty elements');
+
+
+# Set suppressempty to 1 to not output anything for undef
+
+$ref = { 'one' => 1, 'two' => undef };
+$_ = XMLout($ref, suppressempty => 1, noattr => 1);
+like($_, qr{^\s*<(\w*)\s*>\s*<one\s*>1</one\s*>\s*</\1\s*>\s*$}s,
+  'uninitialiased values successfully skipped');
 
 
 # Test the keeproot option
@@ -844,6 +851,11 @@ ok(s{\s*<dir>/usr/bin</dir>\s*<dir>/usr/local/bin</dir>\s*}{LIST}s,  'list OK');
 ok(s{\s*<dirs>LIST</dirs>\s*}{ELEM}s,  'group OK');
 like($_, qr{^<(\w+)\s*>ELEMELEMELEM</\1>$}, 'document OK');
 
+is_deeply($ref, {
+  prefix => 'before',
+  dirs   => [ '/usr/bin', '/usr/local/bin' ],
+  suffix => 'after',
+}, 'original ref is not messed with');
 
 # Try again with multiple groupings
 
@@ -955,6 +967,34 @@ $_ = XMLout($ref, NoIndent => 1);
 is_deeply(XMLin($_), $ref, 'parses ok');
 is($_, '<opt><nest>one</nest><nest>two</nest><nest>three</nest></opt>',
 'NoIndent worked ok');
+
+
+# Check 'NoIndent' works with KeyAttr
+
+$ref = {
+  person => {
+    bob  => { age => 25 },
+    kate => { age => 22 },
+  },
+};
+
+# Expect:
+#
+# <opt><person name="bob" age="25"><person name="kate" age="22"></opt>
+#
+
+$_ = XMLout($ref, NoIndent => 1, KeyAttr => {person => 'name'});
+
+is_deeply(XMLin($_), $ref, 'parses ok');
+like($_, qr{
+  <opt>
+    (
+    <person(\s+name="bob"|\s+age="25"){2}\s*/>
+    |<person(\s+name="kate"|\s+age="22"){2}\s*/>
+    ){2}
+  </opt>
+}sx,
+'NoIndent worked ok with KeyAttr');
 
 
 # Try the 'AttrIndent' option (assume NoSort defaults to off)
