@@ -1,4 +1,4 @@
-# $Id: Simple.pm,v 1.18 2004/03/02 08:18:02 grantm Exp $
+# $Id: Simple.pm,v 1.20 2004/04/05 09:12:47 grantm Exp $
 
 package XML::Simple;
 
@@ -53,7 +53,7 @@ use vars qw($VERSION @ISA @EXPORT @EXPORT_OK $PREFERRED_PARSER);
 @ISA               = qw(Exporter);
 @EXPORT            = qw(XMLin XMLout);
 @EXPORT_OK         = qw(xml_in xml_out);
-$VERSION           = '2.11';
+$VERSION           = '2.12';
 $PREFERRED_PARSER  = undef;
 
 my $StrictMode     = 0;
@@ -66,11 +66,12 @@ my %CacheScheme    = (
 my @KnownOptIn     = qw(keyattr keeproot forcecontent contentkey noattr
                         searchpath forcearray cache suppressempty parseropts
                         grouptags nsexpand datahandler varattr variables
-                        normalisespace normalizespace);
+                        normalisespace normalizespace valueattr);
 
 my @KnownOptOut    = qw(keyattr keeproot contentkey noattr
                         rootname xmldecl outputfile noescape suppressempty
-                        grouptags nsexpand handler noindent attrindent nosort);
+                        grouptags nsexpand handler noindent attrindent nosort
+                        valueattr numericescape);
 
 my @DefKeyAttr     = qw(name key id);
 my $DefRootName    = qq(opt);
@@ -330,7 +331,7 @@ sub build_tree_xml_parser {
   if($filename) {
     # $tree = $xp->parsefile($filename);  # Changed due to prob w/mod_perl
     local(*XML_FILE);
-    open(XML_FILE, "<$filename") || croak qq($filename - $!);
+    open(XML_FILE, '<', $filename) || croak qq($filename - $!);
     $tree = $xp->parse(*XML_FILE);
     close(XML_FILE);
   }
@@ -540,8 +541,9 @@ sub XMLout {
     }
     else {
       local(*OUT);
-      open(OUT, ">$self->{opt}->{outputfile}") ||
+      open(OUT, '>', "$self->{opt}->{outputfile}") ||
         croak "open($self->{opt}->{outputfile}): $!";
+      binmode(OUT, ':utf8') if($] >= 5.008);
       print OUT $xml || croak "print: $!";
       close(OUT);
     }
@@ -763,6 +765,15 @@ sub handle_options  {
   }
 
 
+  # Special cleanup for {foldattr} which could be arrayref or hashref
+
+  if(exists($opt->{valueattr})) {
+    if(ref($opt->{valueattr}) eq 'ARRAY') {
+      $opt->{valueattrlist} = {};
+      $opt->{valueattrlist}->{$_} = 1 foreach(@{ delete $opt->{valueattr} });
+    }
+  }
+
   # make sure there's nothing weird in {grouptags}
 
   if($opt->{grouptags} and !UNIVERSAL::isa($opt->{grouptags}, 'HASH')) {
@@ -876,6 +887,16 @@ sub collapse {
     while(my($key, $val) = each(%$attr)) {
       $val =~ s{\$\{(\w+)\}}{ $self->get_var($1) }ge;
       $attr->{$key} = $val;
+    }
+  }
+
+
+  # Roll up 'value' attributes (but only if no nested elements)
+
+  if(!@_  and  keys %$attr == 1) {
+    my($k) = keys %$attr;
+    if($self->{opt}->{valueattrlist}  and $self->{opt}->{valueattrlist}->{$k}) {
+      return $attr->{$k};
     }
   }
 
@@ -1006,6 +1027,19 @@ sub collapse {
       return('');
     }
     return(undef);
+  }
+
+
+  # Roll up named elements with named nested 'value' attributes
+
+  if($self->{opt}->{valueattr}) {
+    while(my($key, $val) = each(%$attr)) {
+      next unless($self->{opt}->{valueattr}->{$key});
+      next unless(UNIVERSAL::isa($val, 'HASH') and (keys %$val == 1));
+      my($k) = keys %$val;
+      next unless($k eq $self->{opt}->{valueattr}->{$key});
+      $attr->{$key} = $val->{$k};
+    }
   }
 
   return($attr)
@@ -1219,7 +1253,6 @@ sub value_to_xml {
   }
 
 
-
   # Convert to XML
   
   if(ref($ref)) {
@@ -1251,7 +1284,7 @@ sub value_to_xml {
     $ref = $self->hash_to_array($name, $ref);
   }
 
-  
+
   my @result = ();
   my($key, $value);
 
@@ -1352,6 +1385,14 @@ sub value_to_xml {
             $value = {};
           }
         }
+
+        if(!ref($value)  
+           and $self->{opt}->{valueattr}
+           and $self->{opt}->{valueattr}->{$key}
+        ) {
+          $value = { $self->{opt}->{valueattr}->{$key} => $value };
+        }
+
         if(ref($value)  or  $self->{opt}->{noattr}) {
           push @nested,
             $self->value_to_xml($value, $key, "$indent  ");
@@ -1486,7 +1527,24 @@ sub escape_value {
   $data =~ s/>/&gt;/sg;
   $data =~ s/"/&quot;/sg;
 
-  return($data);
+  my $level = $self->{opt}->{numericescape} or return $data;
+
+  return $self->numeric_escape($data, $level);
+}
+
+sub numeric_escape {
+  my($self, $data, $level) = @_;
+
+  use utf8; # required for 5.6
+
+  if($self->{opt}->{numericescape} eq '2') {
+    $data =~ s/([^\x00-\x7F])/'&#' . ord($1) . ';'/gse;
+  }
+  else {
+    $data =~ s/([^\x00-\xFF])/'&#' . ord($1) . ';'/gse;
+  }
+
+  return $data;
 }
 
 
@@ -2330,12 +2388,29 @@ C<XMLout> will emit XML which is not well formed.
 I<Note: You must have the XML::NamespaceSupport module installed if you want
 C<XMLout()> to translate URIs back to prefixes>.
 
+=head2 NumericEscape => 0 | 1 | 2 I<# out - handy>
+
+Use this option to have 'high' (non-ASCII) characters in your Perl data
+structure converted to numeric entities (eg: &#8364;) in the XML output.  Three
+levels are possible:
+
+0 - default: no numeric escaping (OK if you're writing out UTF8)
+
+1 - only characters above 0xFF are escaped (ie: characters in the 0x80-FF range are not escaped), possibly useful with ISO8859-1 output
+
+2 - all characters above 0x7F are escaped (good for plain ASCII output)
+
 =head2 OutputFile => <file specifier> I<# out - handy>
 
 The default behaviour of C<XMLout()> is to return the XML as a string.  If you
 wish to write the XML to a file, simply supply the filename using the
-'OutputFile' option.  Alternatively, you can supply an IO handle object instead
-of a filename.
+'OutputFile' option.  
+
+This option also accepts an IO handle object - especially useful in Perl 5.8.0 
+and later for writing out in an encoding other than UTF-8, eg:
+
+  open my $fh, '>:encoding(iso-8859-1)', $path or die "open($path): $!";
+  XMLout($ref, OutputFile => $fh);
 
 =head2 ParserOpts => [ XML::Parser Options ] I<# in - don't use this>
 
@@ -2384,6 +2459,43 @@ The option also controls what C<XMLout()> does with undefined values.
 Setting the option to undef causes undefined values to be output as
 empty elements (rather than empty attributes), it also suppresses the
 generation of warnings about undefined values.
+
+=head2 ValueAttr => [ names ] I<# in - handy>
+
+Use this option to deal elements which always have a single attribute and no
+content.  Eg:
+
+  <opt>
+    <colour value="red" />
+    <size   value="XXL" />
+  </opt>
+
+Setting C<< ValueAttr => [ 'value' ] >> will cause the above XML to parse to:
+
+  {
+    colour => 'red',
+    size   => 'XXL'
+  }
+
+instead of this (the default):
+
+  {
+    colour => { value => 'red' },
+    size   => { value => 'XXL' }
+  }
+
+Note: This form of the ValueAttr option is not compatible with C<XMLout()> -
+since the attribute name is discarded at parse time, the original XML cannot be
+reconstructed.
+
+=head2 ValueAttr => { element => attribute, ... } I<# in+out - handy>
+
+This (preferred) form of the ValueAttr option requires you to specify both
+the element and the attribute names.  This is not only safer, it also allows
+the original XML to be reconstructed by C<XMLout()>.
+
+Note: You probably don't want to use this option and the NoAttr option at the
+same time.
 
 =head2 Variables => { name => value } I<# in - handy>
 
