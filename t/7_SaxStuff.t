@@ -1,4 +1,4 @@
-# $Id: 7_SaxStuff.t,v 1.3 2003/05/18 08:43:13 grantm Exp $
+# $Id: 7_SaxStuff.t,v 1.4 2004/02/29 09:49:18 grantm Exp $
 # vim: syntax=perl
 
 use strict;
@@ -31,7 +31,7 @@ unless(-e $SrcFile) {
 }
 
 
-plan tests => 13;
+plan tests => 14;
 
 
 ##############################################################################
@@ -262,6 +262,13 @@ $result = $parser->parse_string($xml);
 
 is($result, 'three,two,one', "'datahandler' is a synonym for 'DataHandler'");
 
+
+# Confirm keeproot logic gets called
+
+$simple = XML::Simple->new(keeproot => 1);
+$parser = XML::SAX::ParserFactory->parser(Handler => $simple);
+$opt = $parser->parse_string('<opt a="1" b="2" />');
+is_deeply($opt, {opt => {a => 1, b => 2}}, "keeproot works with SAX pipelines");
 
 # Clean up and go
 
