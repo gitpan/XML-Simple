@@ -1,7 +1,19 @@
 use strict;
 use IO::File;
+use File::Spec;
 
-BEGIN { print "1..38\n"; }
+# Initialise filenames and check they're there
+
+my $XMLFile = File::Spec->catfile('t', 'test1.xml');  # t/test1.xml
+
+unless(-e $XMLFile) {
+  print STDERR "test data missing...";
+  print "1..0\n";
+  exit 0;
+}
+
+
+print "1..46\n";
 
 my $t = 1;
 
@@ -18,7 +30,7 @@ my $t = 1;
 sub ok {
   my($n, $x, $y) = @_;
   die "Sequence error got $n expected $t" if($n != $t);
-  $x = 0 if(defined($y)  and  $x ne $y);
+  $x = 0 if(@_ > 2  and  $x ne $y);
   print(($x ? '' : 'not '), 'ok ', $t++, "\n");
 }
 
@@ -34,12 +46,21 @@ sub DataCompare {
   my($i);
 
   if(!ref($x)) {
-    return($x eq $y);
+    return(1) if($x eq $y);
+    print STDERR "$t:DataCompare: $x != $y\n";
+    return(0);
   }
 
   if(ref($x) eq 'ARRAY') {
-    return(0) unless(ref($y) eq 'ARRAY');
-    return(0) if(scalar(@$x) != scalar(@$y));
+    unless(ref($y) eq 'ARRAY') {
+      print STDERR "$t:DataCompare: expected arrayref, got: $y\n";
+      return(0);
+    }
+    if(scalar(@$x) != scalar(@$y)) {
+      print STDERR "$t:DataCompare: expected ", scalar(@$x),
+                   " element(s), got: ", scalar(@$y), "\n";
+      return(0);
+    }
     for($i = 0; $i < scalar(@$x); $i++) {
       DataCompare($x->[$i], $y->[$i]) || return(0);
     }
@@ -47,10 +68,22 @@ sub DataCompare {
   }
 
   if(ref($x) eq 'HASH') {
-    return(0) unless(ref($y) eq 'HASH');
-    return(0) if(scalar(keys(%$x)) != scalar(keys(%$y)));
+    unless(ref($y) eq 'HASH') {
+      print STDERR "$t:DataCompare: expected hashref, got: $y\n";
+      return(0);
+    }
+    if(scalar(keys(%$x)) != scalar(keys(%$y))) {
+      print STDERR "$t:DataCompare: expected ", scalar(keys(%$x)),
+                   " key(s), (", join(', ', keys(%$x)),
+		   ") got: ",  scalar(keys(%$y)), " (", join(', ', keys(%$y)),
+		   ")\n";
+      return(0);
+    }
     foreach $i (keys(%$x)) {
-      return(0) unless(exists($y->{$i}));
+      unless(exists($y->{$i})) {
+	print STDERR "$t:DataCompare: missing hash key - {$i}\n";
+	return(0);
+      }
       DataCompare($x->{$i}, $y->{$i}) || return(0);
     }
     return(1);
@@ -65,8 +98,12 @@ sub DataCompare {
 #                      T E S T   R O U T I N E S
 ##############################################################################
 
-use XML::Simple;
-ok(1, 1);                         # Module compiled OK
+eval "use XML::Simple;";
+ok(1, !$@);                       # Module compiled OK
+unless($XML::Simple::VERSION eq '1.03') {
+  print STDERR "WARNING: XML::Simple::VERSION = $XML::Simple::VERSION (expected 1.03)...";
+}
+
 
 # Start by parsing an extremely simple piece of XML
 
@@ -158,24 +195,32 @@ my $string = q(
     <item name="item2" attr1="value3" attr2="value4" />
   </opt>
 );
-$opt = XMLin($string);
-ok(11, DataCompare($opt, {
+my $target = {
   item => {
             item1 => { attr1 => 'value1', attr2 => 'value2' },
             item2 => { attr1 => 'value3', attr2 => 'value4' }
 	  }
-}));
+};
+$opt = XMLin($string);
+ok(11, DataCompare($opt, $target));
 
 
 # Same thing left as an array by suppressing default key names
 
-$opt = XMLin($string, keyattr => [] );
-ok(12, DataCompare($opt, {
+$target = {
   item => [
             {name => 'item1', attr1 => 'value1', attr2 => 'value2' },
             {name => 'item2', attr1 => 'value3', attr2 => 'value4' }
 	  ]
-}));
+};
+$opt = XMLin($string, keyattr => [] );
+ok(12, DataCompare($opt, $target));
+
+
+# Same again with alternative key suppression
+
+$opt = XMLin($string, keyattr => {} );
+ok(13, DataCompare($opt, $target));
 
 
 # Try the other two default key attribute names
@@ -186,7 +231,7 @@ $opt = XMLin(q(
     <item key="item2" attr1="value3" attr2="value4" />
   </opt>
 ));
-ok(13, DataCompare($opt, {
+ok(14, DataCompare($opt, {
   item => {
             item1 => { attr1 => 'value1', attr2 => 'value2' },
             item2 => { attr1 => 'value3', attr2 => 'value4' }
@@ -200,7 +245,7 @@ $opt = XMLin(q(
     <item id="item2" attr1="value3" attr2="value4" />
   </opt>
 ));
-ok(14, DataCompare($opt, {
+ok(15, DataCompare($opt, {
   item => {
             item1 => { attr1 => 'value1', attr2 => 'value2' },
             item2 => { attr1 => 'value3', attr2 => 'value4' }
@@ -216,7 +261,7 @@ my $xml = q(
     <item xname="item2" attr1="value3" attr2="value4" />
   </opt>);
 
-my $target = {
+$target = {
   item => {
             item1 => { attr1 => 'value1', attr2 => 'value2' },
             item2 => { attr1 => 'value3', attr2 => 'value4' }
@@ -224,19 +269,25 @@ my $target = {
 };
 
 $opt = XMLin($xml, keyattr => [qw(xname)]);
-ok(15, DataCompare($opt, $target));
+ok(16, DataCompare($opt, $target));
+
+
+# And with precise element/key specification
+
+$opt = XMLin($xml, keyattr => { 'item' => 'xname' });
+ok(17, DataCompare($opt, $target));
 
 
 # Same again but with key field further down the list
 
 $opt = XMLin($xml, keyattr => [qw(wibble xname)]);
-ok(16, DataCompare($opt, $target));
+ok(18, DataCompare($opt, $target));
 
 
 # Same again but with key field supplied as scalar
 
 $opt = XMLin($xml, keyattr => qw(xname));
-ok(17, DataCompare($opt, $target));
+ok(19, DataCompare($opt, $target));
 
 
 # Weird variation, not exactly what we wanted but it is what we expected 
@@ -258,14 +309,99 @@ $target = { item => {
 };
 
 $opt = XMLin($xml);
-ok(18, DataCompare($opt, $target));
+ok(20, DataCompare($opt, $target));
+
+
+# Or somewhat more as one might expect
+
+$target = { item => {
+    'one'   => { 'value' => '1', 'name' => 'a' },
+    'two'   => { 'value' => '2' },
+    'three' => { 'value' => '3' },
+  }
+};
+$opt = XMLin($xml, keyattr => { 'item' => 'id' });
+ok(21, DataCompare($opt, $target));
+
+
+# Now a somewhat more complex test of targetting folding
+
+$xml = q(
+<opt>
+  <car license="SH6673" make="Ford" id="1">
+    <option key="1" pn="6389733317-12" desc="Electric Windows"/>
+    <option key="2" pn="3735498158-01" desc="Leather Seats"/>
+    <option key="3" pn="5776155953-25" desc="Sun Roof"/>
+  </car>
+  <car license="LW1804" make="GM"   id="2">
+    <option key="1" pn="9926543-1167" desc="Steering Wheel"/>
+  </car>
+</opt>
+);
+
+$target = {
+  'car' => {
+    'LW1804' => {
+      'id' => 2,
+      'make' => 'GM',
+      'option' => {
+	  '9926543-1167' => { 'key' => 1, 'desc' => 'Steering Wheel' }
+      }
+    },
+    'SH6673' => {
+      'id' => 1,
+      'make' => 'Ford',
+      'option' => {
+	  '6389733317-12' => { 'key' => 1, 'desc' => 'Electric Windows' },
+	  '3735498158-01' => { 'key' => 2, 'desc' => 'Leather Seats' },
+	  '5776155953-25' => { 'key' => 3, 'desc' => 'Sun Roof' }
+      }
+    }
+  }
+};
+
+$opt = XMLin($xml, forcearray => 1, keyattr => { 'car' => 'license', 'option' => 'pn' });
+ok(22, DataCompare($opt, $target));
+
+
+# Now try leaving the keys in place
+
+$target = {
+  'car' => {
+    'LW1804' => {
+      'id' => 2,
+      'make' => 'GM',
+      'option' => {
+	  '9926543-1167' => { 'key' => 1, 'desc' => 'Steering Wheel',
+	                      '-pn' => '9926543-1167' }
+      },
+      license => 'LW1804'
+    },
+    'SH6673' => {
+      'id' => 1,
+      'make' => 'Ford',
+      'option' => {
+	  '6389733317-12' => { 'key' => 1, 'desc' => 'Electric Windows',
+	                       '-pn' => '6389733317-12' },
+	  '3735498158-01' => { 'key' => 2, 'desc' => 'Leather Seats',
+	                       '-pn' => '3735498158-01' },
+	  '5776155953-25' => { 'key' => 3, 'desc' => 'Sun Roof',
+	                       '-pn' => '5776155953-25' }
+      },
+      license => 'SH6673'
+    }
+  }
+};
+$opt = XMLin($xml, forcearray => 1, keyattr => { 'car' => '+license', 'option' => '-pn' });
+ok(23, DataCompare($opt, $target));
+
 
 # Try parsing a named external file
 
-$opt = eval{ XMLin('t/test1.xml'); };
-ok(19, !$@);                                  # XMLin didn't die
+$opt = eval{ XMLin($XMLFile); };
+ok(24, !$@);                                  # XMLin didn't die
 print STDERR $@ if($@);
-ok(20, DataCompare($opt, {
+ok(25, DataCompare($opt, {
   location => 't/test1.xml'
 }));
 
@@ -274,8 +410,8 @@ ok(20, DataCompare($opt, {
 
 $opt = eval { XMLin(); };
 print STDERR $@ if($@);
-ok(21, !$@);                                  # XMLin didn't die
-ok(22, DataCompare($opt, {
+ok(26, !$@);                                  # XMLin didn't die
+ok(27, DataCompare($opt, {
   location => 't/1_XMLin.xml'
 }));
 
@@ -283,13 +419,14 @@ ok(22, DataCompare($opt, {
 # Try parsing named file in a directory in the searchpath
 
 $opt = eval {
-  XMLin('test2.xml', searchpath => [qw(dir1 dir2 t/subdir)] );
+  XMLin('test2.xml', searchpath => [
+    'dir1', 'dir2', File::Spec->catdir('t', 'subdir')
+  ] );
+
 };
 print STDERR $@ if($@);
-ok(23, !$@);                                  # XMLin didn't die
-ok(24, DataCompare($opt, {
-  location => 't/subdir/test2.xml'
-}));
+ok(28, !$@);                                  # XMLin didn't die
+ok(29, DataCompare($opt, { location => 't/subdir/test2.xml' }));
 
 
 # Ensure we get expected result if file does not exist
@@ -297,17 +434,18 @@ ok(24, DataCompare($opt, {
 $opt = eval {
   XMLin('bogusfile.xml', searchpath => [qw(. ./t)] ); # should 'die'
 };
-ok(25, !defined($opt));                          # XMLin failed
-ok(26, $@ =~ /Could not find bogusfile.xml in/); # with the expected message
+ok(30, !defined($opt));                          # XMLin failed
+ok(31, $@ =~ /Could not find bogusfile.xml in/); # with the expected message
 
 
 # Try parsing from an IO::Handle 
 
 my $fh = new IO::File;
-$fh->open('t/1_XMLin.xml');
+$XMLFile = File::Spec->catfile('t', '1_XMLin.xml');  # t/1_XMLin.xml
+$fh->open($XMLFile);
 $opt = XMLin($fh);
-ok(27, 1);                                      # XMLin didn't die
-ok(28, $opt->{location}, 't/1_XMLin.xml');      # and it parsed the right file
+ok(32, 1);                                      # XMLin didn't die
+ok(33, $opt->{location}, 't/1_XMLin.xml');      # and it parsed the right file
 
 
 # Confirm anonymous array folding works in general
@@ -325,7 +463,7 @@ $opt = XMLin(q(
     </row>
   </opt>
 ));
-ok(29, DataCompare($opt, {
+ok(34, DataCompare($opt, {
   row => [
 	   [ '0.0', '0.1', '0.2' ],
 	   [ '1.0', '1.1', '1.2' ],
@@ -343,7 +481,7 @@ $opt = XMLin(q{
     <anon>three</anon>
   </opt>
 });
-ok(30, DataCompare($opt, [
+ok(35, DataCompare($opt, [
   qw(one two three)
 ]));
 
@@ -360,7 +498,7 @@ $opt = XMLin(q(
     </anon>
   </opt>
 ));
-ok(31, DataCompare($opt, [
+ok(36, DataCompare($opt, [
   1,
   [
    '2.1', [ '2.2.1', '2.2.2']
@@ -375,7 +513,7 @@ $opt = XMLin(q(
     <item>text<nested key="value" /></item>
   </opt>
 ));
-ok(32, DataCompare($opt, {
+ok(37, DataCompare($opt, {
   item => {
 	    content => 'text',
 	    nested  => {
@@ -393,7 +531,7 @@ $string = q(
   </opt>
 );
 $opt = XMLin($string);
-ok(33, DataCompare($opt, {
+ok(38, DataCompare($opt, {
   name => 'value'
 }));
 
@@ -401,22 +539,129 @@ ok(33, DataCompare($opt, {
 # Unless 'forcearray' option is specified
 
 $opt = XMLin($string, forcearray => 1);
-ok(34, DataCompare($opt, {
+ok(39, DataCompare($opt, {
   name => [ 'value' ]
+}));
+
+
+# Confirm array folding of single nested hash
+
+$string = q(<opt>
+  <inner name="one" value="1" />
+</opt>);
+
+$opt = XMLin($string, forcearray => 1);
+ok(40, DataCompare($opt, {
+  'inner' => { 'one' => { 'value' => 1 } }
+}));
+
+
+# But not without forcearray option specified
+
+$opt = XMLin($string, forcearray => 0);
+ok(41, DataCompare($opt, {
+  'inner' => { 'name' => 'one', 'value' => 1 } 
 }));
 
 
 # Test option error handling
 
 $_ = eval { XMLin('<x y="z" />', rootname => 'fred') }; # not valid for XMLin()
-ok(35, !defined($_));
-ok(36, $@ =~ /Unrecognised option:/);
+ok(42, !defined($_));
+ok(43, $@ =~ /Unrecognised option:/);
 
 $_ = eval { XMLin('<x y="z" />', 'searchpath') };
-ok(37, !defined($_));
-ok(38, $@ =~ /Options must be name => value pairs .odd number supplied./);
+ok(44, !defined($_));
+ok(45, $@ =~ /Options must be name => value pairs .odd number supplied./);
 
 
+# Now for a 'real world' test, try slurping in an SRT config file
+
+$opt = XMLin(File::Spec->catfile('t', 'srt.xml'), forcearray => 1);
+$target = {
+  'global' => [
+    {
+      'proxypswd' => 'bar',
+      'proxyuser' => 'foo',
+      'exclude' => [
+        '/_vt',
+        '/save\\b',
+        '\\.bak$',
+        '\\.\\$\\$\\$$'
+      ],
+      'httpproxy' => 'http://10.1.1.5:8080/',
+      'tempdir' => 'C:/Temp'
+    }
+  ],
+  'pubpath' => {
+    'test1' => {
+      'source' => [
+        {
+          'label' => 'web_source',
+          'root' => 'C:/webshare/web_source'
+        }
+      ],
+      'title' => 'web_source -> web_target1',
+      'package' => {
+        'images' => { 'dir' => 'wwwroot/images' }
+      },
+      'target' => [
+        {
+          'label' => 'web_target1',
+          'root' => 'C:/webshare/web_target1',
+          'temp' => 'C:/webshare/web_target1/temp'
+        }
+      ],
+      'dir' => [ 'wwwroot' ]
+    },
+    'test2' => {
+      'source' => [
+        {
+          'label' => 'web_source',
+          'root' => 'C:/webshare/web_source'
+        }
+      ],
+      'title' => 'web_source -> web_target1 & web_target2',
+      'package' => {
+        'bios' => { 'dir' => 'wwwroot/staff/bios' },
+        'images' => { 'dir' => 'wwwroot/images' },
+        'templates' => { 'dir' => 'wwwroot/templates' }
+      },
+      'target' => [
+        {
+          'label' => 'web_target1',
+          'root' => 'C:/webshare/web_target1',
+          'temp' => 'C:/webshare/web_target1/temp'
+        },
+        {
+          'label' => 'web_target2',
+          'root' => 'C:/webshare/web_target2',
+          'temp' => 'C:/webshare/web_target2/temp'
+        }
+      ],
+      'dir' => [ 'wwwroot' ]
+    },
+    'test3' => {
+      'source' => [
+        {
+          'label' => 'web_source',
+          'root' => 'C:/webshare/web_source'
+        }
+      ],
+      'title' => 'web_source -> web_target1 via HTTP',
+      'addexclude' => [ '\\.pdf$' ],
+      'target' => [
+        {
+          'label' => 'web_target1',
+          'root' => 'http://127.0.0.1/cgi-bin/srt_slave.plx',
+          'noproxy' => 1
+        }
+      ],
+      'dir' => [ 'wwwroot' ]
+    }
+  }
+};
+ok(46, DataCompare($target, $opt));
 
 
 exit(0);

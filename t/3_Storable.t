@@ -1,14 +1,27 @@
 use strict;
 
-BEGIN {
-  eval { require Storable; };
-  unless($INC{'Storable.pm'}) {
-    print STDERR "skipping - Storable.pm not available on this platform\n";
-    print "1..1\nok\n";
-    exit;
-  }
-  print "1..19\n";
+use File::Spec;
+
+eval { require Storable; };
+unless($INC{'Storable.pm'}) {
+  print STDERR "no Storable.pm...";
+  print "1..0\n";
+  exit 0;
 }
+
+# Initialise filenames and check they're there
+
+my $SrcFile   = File::Spec->catfile('t', 'desertnet.src');
+my $XMLFile   = File::Spec->catfile('t', 'desertnet.xml');
+my $CacheFile = File::Spec->catfile('t', 'desertnet.stor');
+
+unless(-e $SrcFile) {
+  print STDERR "test data missing...";
+  print "1..0\n";
+  exit 0;
+}
+
+print "1..19\n";
 
 my $t = 1;
 
@@ -25,7 +38,7 @@ my $t = 1;
 sub ok {
   my($n, $x, $y) = @_;
   die "Sequence error got $n expected $t" if($n != $t);
-  $x = 0 if(defined($y)  and  $x ne $y);
+  $x = 0 if(@_ > 2  and  $x ne $y);
   print(($x ? '' : 'not '), 'ok ', $t++, "\n");
 }
 
@@ -41,12 +54,21 @@ sub DataCompare {
   my($i);
 
   if(!ref($x)) {
-    return($x eq $y);
+    return(1) if($x eq $y);
+    print STDERR "$t:DataCompare: $x != $y\n";
+    return(0);
   }
 
   if(ref($x) eq 'ARRAY') {
-    return(0) unless(ref($y) eq 'ARRAY');
-    return(0) if(scalar(@$x) != scalar(@$y));
+    unless(ref($y) eq 'ARRAY') {
+      print STDERR "$t:DataCompare: expected arrayref, got: $y\n";
+      return(0);
+    }
+    if(scalar(@$x) != scalar(@$y)) {
+      print STDERR "$t:DataCompare: expected ", scalar(@$x),
+                   " element(s), got: ", scalar(@$y), "\n";
+      return(0);
+    }
     for($i = 0; $i < scalar(@$x); $i++) {
       DataCompare($x->[$i], $y->[$i]) || return(0);
     }
@@ -54,9 +76,22 @@ sub DataCompare {
   }
 
   if(ref($x) eq 'HASH') {
-    return(0) unless(ref($y) eq 'HASH');
-    return(0) if(scalar(keys(%$x)) != scalar(keys(%$y)));
+    unless(ref($y) eq 'HASH') {
+      print STDERR "$t:DataCompare: expected hashref, got: $y\n";
+      return(0);
+    }
+    if(scalar(keys(%$x)) != scalar(keys(%$y))) {
+      print STDERR "$t:DataCompare: expected ", scalar(keys(%$x)),
+                   " key(s) (", join(', ', keys(%$x)),
+		   "), got: ",  scalar(keys(%$y)), " (", join(', ', keys(%$y)),
+		   ")\n";
+      return(0);
+    }
     foreach $i (keys(%$x)) {
+      unless(exists($y->{$i})) {
+	print STDERR "$t:DataCompare: missing hash key - {$i}\n";
+	return(0);
+      }
       DataCompare($x->{$i}, $y->{$i}) || return(0);
     }
     return(1);
@@ -106,11 +141,8 @@ sub PassTime {
 
 use XML::Simple;
 
-# Initialise some filenames and test data
+# Initialise test data
 
-my $SrcFile   = 't/desertnet.xml-source';
-my $XMLFile   = 't/desertnet.xml';
-my $CacheFile = 't/desertnet.stor';
 my $Expected  = {
           'server' => {
                         'sahara' => {
@@ -159,7 +191,9 @@ ok(8, $t0, $t1);                      # has not changed
 
 PassTime(time());
 $t0 = time();
-utime($t0, $t0, $XMLFile);
+open(FILE, ">>$XMLFile");             # Touch the XML file
+print FILE "\n";
+close(FILE);
 $opt = XMLin($XMLFile, cache => 'storable');
 ok(9, DataCompare($opt, $Expected));  # Got what we expected
 my $t2 = (stat($CacheFile))[9];       # Check cache timestamp
@@ -170,11 +204,17 @@ ok(11, ! -e $XMLFile);                # Original XML file is gone
 open(FILE, ">$XMLFile");              # Re-create it (empty)
 close(FILE);
 utime($t1, $t1, $XMLFile);            # but wind back the clock
-
-$opt = XMLin($XMLFile, cache => 'storable');
-ok(12, DataCompare($opt, $Expected)); # Got what we expected from the cache
-ok(13, ! -s $XMLFile);                # even though the XML file is empty
-
+$t0 = (stat($XMLFile))[9];            # Skip these tests if that didn't work
+if($t0 == $t1) {
+  $opt = XMLin($XMLFile, cache => 'storable');
+  ok(12, DataCompare($opt, $Expected)); # Got what we expected from the cache
+  ok(13, ! -s $XMLFile);                # even though the XML file is empty
+}
+else {
+  print STDERR "no utime - skipping test 12...";
+  ok(12, 1);
+  ok(13, 1);
+}
 
 PassTime($t2);
 open(FILE, ">$XMLFile");              # Write some new data to the XML file
@@ -184,6 +224,7 @@ close(FILE);
 $opt = XMLin($XMLFile);            # Parse with no caching
 ok(14, DataCompare($opt, { one => 1, two => 2})); # Got what we expected
 $t0 = (stat($CacheFile))[9];          # And timestamp on cache file
+my $s0 = (-s $CacheFile);
 ok(15, $t0 == $t2);                   # has not changed
 
                                       # Parse again with caching enabled
@@ -191,7 +232,8 @@ $opt = XMLin($XMLFile, cache => 'storable');
                                       # Came through the cache
 ok(16, DataCompare($opt, { one => 1, two => 2}));
 $t1 = (stat($CacheFile))[9];          # which has been updated
-ok(17, $t0 != $t1);
+my $s1 = (-s $CacheFile);
+ok(17, ($t0 != $t1) || ($s0 != $s1)); # Content changes but date may not on Win32
 
 ok(18, CopyFile($SrcFile, $XMLFile)); # Put back the original file
 PassTime($t1);

@@ -29,7 +29,7 @@ WriteMakefile(
     'NAME'          => 'XML::Simple',
     'VERSION_FROM'  => 'Simple.pm',
     'DISTNAME'      => 'XML-Simple',
-    'PREREQ_PM'     => { 'XML::Parser' => 2 },
+    'PREREQ_PM'     => { 'XML::Parser' => 2, 'File::Spec' => 0 },
     'dist'          => { COMPRESS => 'gzip --best', SUFFIX => 'gz' },
     # Don't worry if these aren't supported by your Perl
     'AUTHOR'        => 'Grant McLean <grantm@web.co.nz>',

@@ -1,9 +1,19 @@
 use strict;
-use Data::Dumper;
 
-BEGIN {
-  print "1..7\n";
+use File::Spec;
+
+# Initialise filenames and check they're there
+
+my $SrcFile   = File::Spec->catfile('t', 'desertnet.src');
+my $XMLFile   = File::Spec->catfile('t', 'desertnet.xml');
+
+unless(-e $SrcFile) {
+  print STDERR "test data missing...";
+  print "1..0\n";
+  exit 0;
 }
+
+print "1..7\n";
 
 my $t = 1;
 
@@ -20,7 +30,7 @@ my $t = 1;
 sub ok {
   my($n, $x, $y) = @_;
   die "Sequence error got $n expected $t" if($n != $t);
-  $x = 0 if(defined($y)  and  $x ne $y);
+  $x = 0 if(@_ > 2  and  $x ne $y);
   print(($x ? '' : 'not '), 'ok ', $t++, "\n");
 }
 
@@ -36,12 +46,21 @@ sub DataCompare {
   my($i);
 
   if(!ref($x)) {
-    return($x eq $y);
+    return(1) if($x eq $y);
+    print STDERR "$t:DataCompare: $x != $y\n";
+    return(0);
   }
 
   if(ref($x) eq 'ARRAY') {
-    return(0) unless(ref($y) eq 'ARRAY');
-    return(0) if(scalar(@$x) != scalar(@$y));
+    unless(ref($y) eq 'ARRAY') {
+      print STDERR "$t:DataCompare: expected arrayref, got: $y\n";
+      return(0);
+    }
+    if(scalar(@$x) != scalar(@$y)) {
+      print STDERR "$t:DataCompare: expected ", scalar(@$x),
+                   " element(s), got: ", scalar(@$y), "\n";
+      return(0);
+    }
     for($i = 0; $i < scalar(@$x); $i++) {
       DataCompare($x->[$i], $y->[$i]) || return(0);
     }
@@ -49,9 +68,22 @@ sub DataCompare {
   }
 
   if(ref($x) eq 'HASH') {
-    return(0) unless(ref($y) eq 'HASH');
-    return(0) if(scalar(keys(%$x)) != scalar(keys(%$y)));
+    unless(ref($y) eq 'HASH') {
+      print STDERR "$t:DataCompare: expected hashref, got: $y\n";
+      return(0);
+    }
+    if(scalar(keys(%$x)) != scalar(keys(%$y))) {
+      print STDERR "$t:DataCompare: expected ", scalar(keys(%$x)),
+                   " key(s) (", join(', ', keys(%$x)),
+		   "), got: ",  scalar(keys(%$y)), " (", join(', ', keys(%$y)),
+		   ")\n";
+      return(0);
+    }
     foreach $i (keys(%$x)) {
+      unless(exists($y->{$i})) {
+	print STDERR "$t:DataCompare: missing hash key - {$i}\n";
+	return(0);
+      }
       DataCompare($x->{$i}, $y->{$i}) || return(0);
     }
     return(1);
@@ -83,15 +115,26 @@ sub CopyFile {
 
 
 ##############################################################################
+# Wait until the current time is greater than the supplied value
+#
+
+sub PassTime {
+  my($Target) = @_;
+
+  while(time <= $Target) {
+    sleep 1;
+  }
+}
+
+
+##############################################################################
 #                      T E S T   R O U T I N E S
 ##############################################################################
 
 use XML::Simple;
 
-# Initialise some filenames and test data
+# Initialise test data
 
-my $SrcFile   = 't/desertnet.xml-source';
-my $XMLFile   = 't/desertnet.xml';
 my $Expected  = {
           'server' => {
                         'sahara' => {
@@ -129,30 +172,37 @@ unlink($XMLFile);
 ok(3, ! -e $XMLFile);                 # Original XML file is gone
 open(FILE, ">$XMLFile");              # Re-create it (empty)
 close(FILE);
-$t0--;
-utime($t0, $t0, $XMLFile);            # but wind back the clock
+my $t1 = $t0 - 1;
+eval { utime($t1, $t1, $XMLFile); };  # but wind back the clock
+my $t2 = (stat($XMLFile))[9];         # Skip these tests if that didn't work
+if($t2 >= $t0) {
+  print STDERR "no utime - skipping test 4...";
+  ok(4, 1);
+  ok(5, 1);
+}
+else {
+  $opt = XMLin($XMLFile, cache => 'memshare');
+  ok(4, DataCompare($opt, $Expected)); # Got what we expected from the cache
+  ok(5, ! -s $XMLFile);                # even though the XML file is empty
+}
+PassTime(time());                      # Ensure timestamp changes
 
-$opt = XMLin($XMLFile, cache => 'memshare');
-ok(4, DataCompare($opt, $Expected));  # Got what we expected from the cache
-ok(5, ! -s $XMLFile);                 # even though the XML file is empty
 
-
-sleep(1);
-open(FILE, ">$XMLFile");              # Write some new data to the XML file
+open(FILE, ">$XMLFile");               # Write some new data to the XML file
 print FILE qq(<opt one="1" two="2"></opt>\n);
 close(FILE);
-sleep(1);
+PassTime(time());                      # Ensure current time later than file time
 
-                                      # Parse again with caching enabled
+                                       # Parse again with caching enabled
 $opt = XMLin($XMLFile, cache => 'memshare');
-                                      # Came through the cache
+                                       # Came through the cache
 ok(6, DataCompare($opt, { one => 1, two => 2}));
 
-$opt->{three} = 3;                    # Alter the returned structure
-                                      # Retrieve again from the cache
+$opt->{three} = 3;                     # Alter the returned structure
+                                       # Retrieve again from the cache
 my $opt2 = XMLin($XMLFile, cache => 'memshare');
 
-ok(7, $opt2->{three}, 3);             # Confirm cached version is altered too
+ok(7, $opt2->{three}, 3);              # Confirm cached version is altered too
 
 
 exit(0);
