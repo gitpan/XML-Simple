@@ -33,7 +33,7 @@ use vars qw($VERSION @ISA @EXPORT);
 
 @ISA               = qw(Exporter);
 @EXPORT            = qw(XMLin XMLout);
-$VERSION           = '1.00';
+$VERSION           = '1.01';
 
 my %CacheScheme    = (
                        storable => [ \&StorableSave, \&StorableRestore ],
@@ -62,12 +62,12 @@ my %MemCopyCache   = ();
 # (Code courtesy Dan Sugalski TPJ#15)
 #
 
-BEGIN {
-  sub fakelock {};
-  if($] < 5.005) {
-    *lock = \&fakelock;
-  }
-}
+# BEGIN {
+#   sub fakelock {};
+#   if($] < 5.005) {
+#     *lock = \&fakelock;
+#   }
+# }
 
 
 ##############################################################################
@@ -109,7 +109,7 @@ sub XMLin {
     $Filename = FindXMLFile($String, @{$Options->{searchpath}});
 
     if($Options->{cache}) {
-      lock %CacheScheme;
+#      lock(%CacheScheme);
       foreach $Scheme (@{$Options->{cache}}) {
 	croak "Unsupported caching scheme: $Scheme"
 	  unless($CacheScheme{$Scheme});
@@ -204,7 +204,7 @@ sub StorableRestore {
 sub MemShareSave {
   my($Data, $Filename) = @_;
 
-  lock %MemShareCache;
+#  lock(%MemShareCache);
   $MemShareCache{$Filename} = [time(), $Data];
 }
 
@@ -218,7 +218,7 @@ sub MemShareSave {
 sub MemShareRestore {
   my($Filename) = @_;
   
-  lock %MemShareCache;
+#  lock(%MemShareCache);
   return unless($MemShareCache{$Filename});
   return unless($MemShareCache{$Filename}->[0] > (stat($Filename))[9]);
 
@@ -237,7 +237,7 @@ sub MemShareRestore {
 sub MemCopySave {
   my($Data, $Filename) = @_;
 
-  lock %MemCopyCache;
+#  lock(%MemCopyCache);
   unless($INC{'Storable.pm'}) {
     eval { require Storable; };          # We didn't need it until now
     croak($@) if($@);
@@ -257,7 +257,7 @@ sub MemCopySave {
 sub MemCopyRestore {
   my($Filename) = @_;
   
-  lock %MemCopyCache;
+#  lock(%MemCopyCache);
   return unless($MemCopyCache{$Filename});
   return unless($MemCopyCache{$Filename}->[0] > (stat($Filename))[9]);
 
@@ -343,7 +343,7 @@ sub XMLout {
 
 sub HandleOptions  {
 
-  lock $DefaultValues;
+#  lock($DefaultValues);
 
 
   # Determine valid options based on context

@@ -30,14 +30,16 @@ BUILDING/INSTALLING
 
 STATUS
 
-  Current release is version 1.00 - the first full release following
-  the alphas and betas.  The module name and subroutine names changed
-  in the first beta release but have been stable since - the 'convert'
-  script will upgrade code written for the alpha release.
+  Current release is version 1.01.  Version 1.00 was intended to be the
+  first stable release but had serious backwards compatibility
+  problems with locking routines for thread safing.  This version removes
+  the offending code and is therefore stable and safe in non-threaded
+  applications.  Let me know if you are able to test the next attempt at
+  a thread-safe version.
 
-  Although the module does not make use of threads, it is believed to be
-  thread safe to the best of the author's knowledge.  (Access to all
-  globals is protected by locks).
+  This module is known not to be thread safe - the locking code has
+  been temporarily removed due to backwards compatibility problems.
+  It will be fixed and re-instated in the next release.
 
   Please send any feedback to the author: grantm@web.co.nz
 

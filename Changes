@@ -1,6 +1,9 @@
 Revision history for Perl extension XML::Simple
 
-1.00  Nov  25 1999
+1.01  Dec  1 1999
+	- removed faulty locking code pending a fix
+
+1.00  Nov 25 1999
 	- added escaping feature + noescape option
 	- added xmldecl option
 	- further tidy ups for thread safing
