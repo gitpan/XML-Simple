@@ -1,11 +1,11 @@
-# $Id: 2_XMLout.t,v 1.4 2002/10/16 09:43:35 grantm Exp $
+# $Id: 2_XMLout.t,v 1.5 2003/01/20 07:48:10 grantm Exp $
 # vim: syntax=perl
 
 use strict;
 use Test::More;
 use IO::File;
 
-plan tests => 172;
+plan tests => 174;
 
 ##############################################################################
 #                   S U P P O R T   R O U T I N E S
@@ -310,6 +310,23 @@ $_ = eval {
 ok(!defined($_), 'caught circular data structure');
 like($@, qr/circular data structures not supported/, 
 'with correct error message');
+
+
+# Try encoding a repetitive (but non-circular) data structure and confirm that 
+# it does not fail
+
+$_ = eval {
+  my $a = { alpha => 1 };
+  my $ref = { a => $a, b => $a };
+  XMLout($ref);
+};
+ok(defined($_), 'repetitive (non-circular) data structure not fatal');
+like($_, qr{^
+<opt>
+  \s*<a\s+alpha="1"\s*/>
+  \s*<b\s+alpha="1"\s*/>
+\s*</opt>
+}xs, 'and encodes as expected');
 
 
 # Try encoding a blessed reference and confirm that it fails

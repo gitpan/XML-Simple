@@ -1,4 +1,4 @@
-# $Id: 1_XMLin.t,v 1.9 2002/12/15 08:10:52 grantm Exp $
+# $Id: 1_XMLin.t,v 1.10 2003/01/20 07:48:59 grantm Exp $
 # vim: syntax=perl
 
 use strict;
@@ -21,8 +21,8 @@ plan tests => 66;
 $@ = '';
 eval "use XML::Simple;";
 is($@, '', 'Module compiled OK');
-unless($XML::Simple::VERSION eq '2.02') {
-  diag("Warning: XML::Simple::VERSION = $XML::Simple::VERSION (expected 2.02)");
+unless($XML::Simple::VERSION eq '2.03') {
+  diag("Warning: XML::Simple::VERSION = $XML::Simple::VERSION (expected 2.03)");
 }
 
 
