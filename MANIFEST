@@ -2,7 +2,8 @@ Changes
 MANIFEST
 Makefile.PL
 README
-Simple.pm
+lib/XML/Simple.pm
+lib/XML/Simple/FAQ.pod
 maketest
 t/0_Config.t
 t/1_XMLin.t
@@ -14,6 +15,7 @@ t/5_MemCopy.t
 t/6_ObjIntf.t
 t/7_SaxStuff.t
 t/8_Namespaces.t
+t/9_Strict.t
 t/desertnet.src
 t/lib/TagsToUpper.pm
 t/subdir/test2.xml

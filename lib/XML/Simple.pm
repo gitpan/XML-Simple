@@ -1,10 +1,10 @@
-# $Id: Simple.pm,v 1.4 2002/02/14 21:32:44 grantm Exp $
+# $Id: Simple.pm,v 1.6 2002/12/08 02:37:40 grantm Exp $
 
 package XML::Simple;
 
 =head1 NAME
 
-XML::Simple - Easy API to read/write XML (esp config files)
+XML::Simple - Easy API to maintain XML (esp config files)
 
 =head1 SYNOPSIS
 
@@ -26,6 +26,12 @@ Or the object oriented way:
 
 (or see L<"SAX SUPPORT"> for 'the SAX way').
 
+To catch common errors:
+
+    use XML::Simple qw(:strict);
+
+(see L<"STRICT MODE"> for more details).
+
 =cut
 
 # See after __END__ for more POD documentation
@@ -46,16 +52,16 @@ use vars qw($VERSION @ISA @EXPORT $PREFERRED_PARSER);
 
 @ISA               = qw(Exporter);
 @EXPORT            = qw(XMLin XMLout);
-$VERSION           = '1.08_01';
+$VERSION           = '2.00';
 $PREFERRED_PARSER  = undef;
 
+my $StrictMode     = 0;
 my %CacheScheme    = (
                        storable => [ \&StorableSave, \&StorableRestore ],
                        memshare => [ \&MemShareSave, \&MemShareRestore ],
                        memcopy  => [ \&MemCopySave,  \&MemCopyRestore  ]
 		     );
 
-my $DefaultValues  = 1;       # Used for locking only
 my @KnownOptIn     = qw(keyattr keeproot forcecontent contentkey noattr
                         searchpath forcearray cache suppressempty parseropts
 			nsexpand datahandler DataHandler);
@@ -72,7 +78,7 @@ my $bad_def_ns_jcn = '{' . $xmlns_ns . '}';     # LibXML::SAX workaround
 
 
 ##############################################################################
-# Globals for use by caching routines (access protected by locks)
+# Globals for use by caching routines
 #
 
 my %MemShareCache  = ();
@@ -80,13 +86,18 @@ my %MemCopyCache   = ();
 
 
 ##############################################################################
-# Dummy 'lock' routine for non-threaded versions of Perl
+# Wrapper for Exporter - handles ':strict'
 #
 
-BEGIN {
-  if($] < 5.005) {
-    eval "sub lock {}";
-  }
+sub import {
+
+  # Handle the :strict tag
+  
+  $StrictMode = 1 if grep(/^:strict$/, @_);
+
+  # Pass everything else to Exporter.pm
+
+  __PACKAGE__->export_to_level(1, grep(!/^:strict$/, @_));
 }
 
 
@@ -170,7 +181,6 @@ sub XMLin {
     $filename = $self->find_xml_file($string, @{$self->{opt}->{searchpath}});
 
     if($self->{opt}->{cache}) {
-      lock(%CacheScheme);
       foreach $scheme (@{$self->{opt}->{cache}}) {
 	croak "Unsupported caching scheme: $scheme"
 	  unless($CacheScheme{$scheme});
@@ -374,7 +384,6 @@ sub StorableRestore {
 sub MemShareSave {
   my($data, $filename) = @_;
 
-  lock(%MemShareCache);
   $MemShareCache{$filename} = [time(), $data];
 }
 
@@ -388,7 +397,6 @@ sub MemShareSave {
 sub MemShareRestore {
   my($filename) = @_;
   
-  lock(%MemShareCache);
   return unless($MemShareCache{$filename});
   return unless($MemShareCache{$filename}->[0] > (stat($filename))[9]);
 
@@ -407,7 +415,6 @@ sub MemShareRestore {
 sub MemCopySave {
   my($data, $filename) = @_;
 
-  lock(%MemCopyCache);
   unless($INC{'Storable.pm'}) {
     require Storable;           # We didn't need it until now
   }
@@ -426,7 +433,6 @@ sub MemCopySave {
 sub MemCopyRestore {
   my($filename) = @_;
   
-  lock(%MemCopyCache);
   return unless($MemCopyCache{$filename});
   return unless($MemCopyCache{$filename}->[0] > (stat($filename))[9]);
 
@@ -473,7 +479,7 @@ sub XMLout {
 
   # Wrap top level arrayref in a hash
 
-  if(ref($ref) eq 'ARRAY') {
+  if(UNIVERSAL::isa($ref, 'ARRAY')) {
     $ref = { anon => $ref };
   }
 
@@ -491,7 +497,7 @@ sub XMLout {
   # Ensure there are no top level attributes if we're not adding root elements
 
   elsif($self->{opt}->{rootname} eq '') {
-    if(ref($ref) eq 'HASH') {
+    if(UNIVERSAL::isa($ref, 'HASH')) {
       my $refsave = $ref;
       $ref = {};
       foreach (keys(%$refsave)) {
@@ -558,8 +564,6 @@ sub handle_options  {
   my $self = shift;
   my $dirn = shift;
 
-
-  lock($DefaultValues);
 
   # Determine valid options based on context
 
@@ -644,45 +648,6 @@ sub handle_options  {
     $opt->{parseropts} = [ ];
   }
 
-
-  # Special cleanup for {keyattr} which could be arrayref or hashref or left
-  # to default to arrayref
-
-  if(exists($opt->{keyattr}))  {
-    if(ref($opt->{keyattr})) {
-      if(ref($opt->{keyattr}) eq 'HASH') {
-
-	# Make a copy so we can mess with it
-
-	$opt->{keyattr} = { %{$opt->{keyattr}} };
-
-	
-	# Convert keyattr => { elem => '+attr' }
-	# to keyattr => { elem => [ 'attr', '+' ] } 
-
-	foreach (keys(%{$opt->{keyattr}})) {
-	  if($opt->{keyattr}->{$_} =~ /^(\+|-)?(.*)$/) {
-	    $opt->{keyattr}->{$_} = [ $2, ($1 ? $1 : '') ];
-	  }
-	  else {
-	    delete($opt->{keyattr}->{$_}); # Never reached (famous last words?)
-	  }
-	}
-      }
-      else {
-	if(@{$opt->{keyattr}} == 0) {
-	  delete($opt->{keyattr});
-	}
-      }
-    }
-    else {
-      $opt->{keyattr} = [ $opt->{keyattr} ];
-    }
-  }
-  else  {
-    $opt->{keyattr} = [ @DefKeyAttr ];
-  }
-
   
   # Special cleanup for {forcearray} which could be arrayref or boolean
   # or left to default to 0
@@ -703,7 +668,58 @@ sub handle_options  {
     }
   }
   else {
+    if($StrictMode) {
+      croak "No value specified for 'forcearray' option in call to XML$dirn()";
+    }
     $opt->{forcearray} = 0;
+  }
+
+
+  # Special cleanup for {keyattr} which could be arrayref or hashref or left
+  # to default to arrayref
+
+  if(exists($opt->{keyattr}))  {
+    if(ref($opt->{keyattr})) {
+      if(ref($opt->{keyattr}) eq 'HASH') {
+
+	# Make a copy so we can mess with it
+
+	$opt->{keyattr} = { %{$opt->{keyattr}} };
+
+	
+	# Convert keyattr => { elem => '+attr' }
+	# to keyattr => { elem => [ 'attr', '+' ] } 
+
+	foreach my $el (keys(%{$opt->{keyattr}})) {
+	  if($opt->{keyattr}->{$el} =~ /^(\+|-)?(.*)$/) {
+	    $opt->{keyattr}->{$el} = [ $2, ($1 ? $1 : '') ];
+	    if($StrictMode) {
+	      next if($opt->{forcearray} == 1);
+	      next if(ref($opt->{forcearray}) eq 'HASH'
+		      and $opt->{forcearray}->{$el});
+	      croak "<$el> set in keyattr but not in forcearray";
+	    }
+	  }
+	  else {
+	    delete($opt->{keyattr}->{$el}); # Never reached (famous last words?)
+	  }
+	}
+      }
+      else {
+	if(@{$opt->{keyattr}} == 0) {
+	  delete($opt->{keyattr});
+	}
+      }
+    }
+    else {
+      $opt->{keyattr} = [ $opt->{keyattr} ];
+    }
+  }
+  else  {
+    if($StrictMode) {
+      croak "No value specified for 'keyattr' option in call to XML$dirn()";
+    }
+    $opt->{keyattr} = [ @DefKeyAttr ];
   }
 
 
@@ -829,14 +845,14 @@ sub collapse {
     # Combine duplicate attributes into arrayref if required
 
     if(exists($attr->{$key})) {
-      if(ref($attr->{$key}) eq 'ARRAY') {
+      if(UNIVERSAL::isa($attr->{$key}, 'ARRAY')) {
         push(@{$attr->{$key}}, $val);
       }
       else {
         $attr->{$key} = [ $attr->{$key}, $val ];
       }
     }
-    elsif(ref($val) eq 'ARRAY') {  # Handle anonymous arrays
+    elsif(UNIVERSAL::isa($val, 'ARRAY')) {  # Handle anonymous arrays
       $attr->{$key} = [ $val ];
     }
     else {
@@ -863,7 +879,7 @@ sub collapse {
   my $count = 0;
   if($self->{opt}->{keyattr}) {
     while(($key,$val) = each %$attr) {
-      if(ref($val) eq 'ARRAY') {
+      if(UNIVERSAL::isa($val, 'ARRAY')) {
 	$attr->{$key} = $self->array_to_hash($key, $val);
       }
       $count++;
@@ -873,7 +889,7 @@ sub collapse {
 
   # Fold hashes containing a single anonymous array up into just the array
 
-  if($count == 1  and  ref($attr->{anon}) eq 'ARRAY') {
+  if($count == 1  and  UNIVERSAL::isa($attr->{anon}, 'ARRAY')) {
     return($attr->{anon});
   }
 
@@ -918,13 +934,25 @@ sub array_to_hash {
     return($arrayref) unless(exists($self->{opt}->{keyattr}->{$name}));
     ($key, $flag) = @{$self->{opt}->{keyattr}->{$name}};
     for($i = 0; $i < @$arrayref; $i++)  {
-      if(ref($arrayref->[$i]) eq 'HASH' and exists($arrayref->[$i]->{$key})) {
+      if(UNIVERSAL::isa($arrayref->[$i], 'HASH') and
+         exists($arrayref->[$i]->{$key})
+      ) {
 	$val = $arrayref->[$i]->{$key};
+	if(ref($val)) {
+	  if($StrictMode) {
+	    croak "<$name> element has non-scalar '$key' key attribute";
+	  }
+	  if($^W) {
+	    carp "Warning: <$name> element has non-scalar '$key' key attribute";
+	  }
+	  return($arrayref);
+	}
 	$hashref->{$val} = { %{$arrayref->[$i]} };
 	$hashref->{$val}->{"-$key"} = $hashref->{$val}->{$key} if($flag eq '-');
 	delete $hashref->{$val}->{$key} unless($flag eq '+');
       }
       else {
+	croak "<$name> element has no '$key' key attribute" if($StrictMode);
 	carp "Warning: <$name> element has no '$key' key attribute" if($^W);
 	return($arrayref);
       }
@@ -936,11 +964,12 @@ sub array_to_hash {
 
   else {
     ELEMENT: for($i = 0; $i < @$arrayref; $i++)  {
-      return($arrayref) unless(ref($arrayref->[$i]) eq 'HASH');
+      return($arrayref) unless(UNIVERSAL::isa($arrayref->[$i], 'HASH'));
 
       foreach $key (@{$self->{opt}->{keyattr}}) {
 	if(defined($arrayref->[$i]->{$key}))  {
 	  $val = $arrayref->[$i]->{$key};
+	  return($arrayref) if(ref($val));
 	  $hashref->{$val} = { %{$arrayref->[$i]} };
 	  delete $hashref->{$val}->{$key};
 	  next ELEMENT;
@@ -964,7 +993,7 @@ sub array_to_hash {
 # Arguments expected are:
 # - the data structure to be encoded (usually a reference)
 # - the XML tag name to use for this item
-# - a hashref of references already encoded (to detect recursive structures)
+# - a hashref of references already encoded (to detect circular structures)
 # - a string of spaces for use as the current indent level
 #
 
@@ -984,7 +1013,7 @@ sub value_to_xml {
   # Convert to XML
   
   if(ref($ref)) {
-    croak "recursive data structures not supported" if($encoded->{$ref});
+    croak "circular data structures not supported" if($encoded->{$ref});
     $encoded->{$ref} = $ref;
   }
   else {
@@ -1003,7 +1032,7 @@ sub value_to_xml {
 
   # Unfold hash to array if possible
 
-  if(ref($ref) eq 'HASH'               # It is a hash
+  if(UNIVERSAL::isa($ref, 'HASH')      # It is a hash
      and %$ref                         # and it's not empty
      and $self->{opt}->{keyattr}       # and folding is enabled
      and $indent                       # and its not the root element
@@ -1018,7 +1047,7 @@ sub value_to_xml {
 
   # Handle hashrefs
 
-  if(ref($ref) eq 'HASH') {
+  if(UNIVERSAL::isa($ref, 'HASH')) {
 
     # Scan for namespace declaration attributes
 
@@ -1083,7 +1112,7 @@ sub value_to_xml {
       push @result, $indent, '<', $name, $nsdecls;
     }
 
-    if(%$ref) {
+    if(keys %$ref) {
       while(($key, $value) = each(%$ref)) {
 	next if(substr($key, 0, 1) eq '-');
 	if(!defined($value)) {
@@ -1141,7 +1170,7 @@ sub value_to_xml {
 
   # Handle arrayrefs
 
-  elsif(ref($ref) eq 'ARRAY') {
+  elsif(UNIVERSAL::isa($ref, 'ARRAY')) {
     foreach $value (@$ref) {
       if(!ref($value)) {
         push @result,
@@ -1149,7 +1178,7 @@ sub value_to_xml {
 	     ($self->{opt}->{noescape} ? $value : $self->escape_value($value)),
 	     '</', $name, ">\n";
       }
-      elsif(ref($value) eq 'HASH') {
+      elsif(UNIVERSAL::isa($value, 'HASH')) {
 	push @result, $self->value_to_xml($value, $name, $encoded, $indent);
       }
       else {
@@ -1210,7 +1239,7 @@ sub hash_to_array {
 
   foreach $key (keys(%$hashref)) {
     $value = $hashref->{$key};
-    return($hashref) unless(ref($value) eq 'HASH');
+    return($hashref) unless(UNIVERSAL::isa($value, 'HASH'));
 
     if(ref($self->{opt}->{keyattr}) eq 'HASH') {
       return($hashref) unless(defined($self->{opt}->{keyattr}->{$parent}));
@@ -1510,7 +1539,7 @@ back in.  (A later version of B<XML::Simple> might take a more proactive
 approach).
 
 Note also that although you can nest hashes and arrays to arbitrary levels,
-recursive data structures are not supported and will cause C<XMLout()> to die.
+circular data structures are not supported and will cause C<XMLout()> to die.
 
 Refer to L<"WHERE TO FROM HERE?"> if C<XMLout()> is too simple for your needs.
 
@@ -1523,6 +1552,9 @@ becomes more tenuous).  If you find yourself repeatedly having to specify
 the same options, you might like to investigate L<"OPTIONAL OO INTERFACE">
 below.
 
+If you can't be bothered reading the documentation, refer to
+L<"STRICT MODE"> to automatically catch common mistakes.
+
 Because there are so many options, it's hard for new users to know which ones
 are important, so here are the two you really need to know about:
 
@@ -1534,8 +1566,9 @@ check out 'forcearray' because you'll almost certainly want to turn it on
 
 =item *
 
-make sure you know what the 'keyattr' option does and what its default value
-is because it may surprise you otherwise
+make sure you know what the 'keyattr' option does and what its default value is
+because it may surprise you otherwise (note in particular that 'keyattr'
+affects both C<XMLin> and C<XMLout>)
 
 =back
 
@@ -1544,191 +1577,20 @@ options.  An option takes the form of a 'name => value' pair.  The options
 listed below are marked with 'B<in>' if they are recognised by C<XMLin()> and
 'B<out>' if they are recognised by C<XMLout()>.
 
+Each option is also flagged to indicate whether it is:
+
+ 'important'   - don't use the module until you understand this
+ 'handy'       - you can skip this on the first time through
+ 'advanced'    - you can skip this on the second time through
+ 'SAX only'    - don't worry about this unless you're using SAX
+ 'seldom used' - you'll probably never use this unless you were the
+                 person that requested the feature
+
+The options are listed alphabetically:
+
 =over 4
 
-=item keyattr => [ list ] (B<in+out>)
-
-This option controls the 'array folding' feature which translates nested
-elements from an array to a hash.  For example, this XML:
-
-    <opt>
-      <user login="grep" fullname="Gary R Epstein" />
-      <user login="stty" fullname="Simon T Tyson" />
-    </opt>
-
-would, by default, parse to this:
-
-    {
-      'user' => [
-		  {
-		    'login' => 'grep',
-		    'fullname' => 'Gary R Epstein'
-		  },
-		  {
-		    'login' => 'stty',
-		    'fullname' => 'Simon T Tyson'
-		  }
-		]
-    }
-
-If the option 'keyattr => "login"' were used to specify that the 'login'
-attribute is a key, the same XML would parse to:
-
-    {
-      'user' => {
-		  'stty' => {
-			      'fullname' => 'Simon T Tyson'
-			    },
-		  'grep' => {
-			      'fullname' => 'Gary R Epstein'
-			    }
-		}
-    }
-
-The key attribute names should be supplied in an arrayref if there is more
-than one.  C<XMLin()> will attempt to match attribute names in the order
-supplied.  C<XMLout()> will use the first attribute name supplied when
-'unfolding' a hash into an array.
-
-Note: the keyattr option controls the folding of arrays.  By default a single
-nested element will be rolled up into a scalar rather than an array and
-therefore will not be folded.  Use the 'forcearray' option (below) to force
-nested elements to be parsed into arrays and therefore candidates for folding
-into hashes.
-
-The default value for 'keyattr' is ['name', 'key', 'id'].  Setting this option
-to an empty list will disable the array folding feature.
-
-=item keyattr => { list } (B<in+out>)
-
-This alternative method of specifiying the key attributes allows more fine
-grained control over which elements are folded and on which attributes.  For
-example the option 'keyattr => { package => 'id' } will cause any package
-elements to be folded on the 'id' attribute.  No other elements which have an
-'id' attribute will be folded at all. 
-
-Note: C<XMLin()> will generate a warning if this syntax is used and an element
-which does not have the specified key attribute is encountered (eg: a 'package'
-element without an 'id' attribute, to use the example above).  Warnings will
-only be generated if B<-w> is in force.
-
-Two further variations are made possible by prefixing a '+' or a '-' character
-to the attribute name:
-
-The option 'keyattr => { user => "+login" }' will cause this XML:
-
-    <opt>
-      <user login="grep" fullname="Gary R Epstein" />
-      <user login="stty" fullname="Simon T Tyson" />
-    </opt>
-
-to parse to this data structure:
-
-    {
-      'user' => {
-		  'stty' => {
-			      'fullname' => 'Simon T Tyson',
-			      'login'    => 'stty'
-			    },
-		  'grep' => {
-			      'fullname' => 'Gary R Epstein',
-			      'login'    => 'grep'
-			    }
-		}
-    }
-
-The '+' indicates that the value of the key attribute should be copied rather than
-moved to the folded hash key.
-
-A '-' prefix would produce this result:
-
-    {
-      'user' => {
-		  'stty' => {
-			      'fullname' => 'Simon T Tyson',
-			      '-login'    => 'stty'
-			    },
-		  'grep' => {
-			      'fullname' => 'Gary R Epstein',
-			      '-login'    => 'grep'
-			    }
-		}
-    }
-
-As described earlier, C<XMLout> will ignore hash keys starting with a '-'.
-
-=item searchpath => [ list ] (B<in>)
-
-If you pass C<XMLin()> a filename, but the filename include no directory
-component, you can use this option to specify which directories should be
-searched to locate the file.  You might use this option to search first in the
-user's home directory, then in a global directory such as /etc.
-
-If a filename is provided to C<XMLin()> but searchpath is not defined, the
-file is assumed to be in the current directory.
-
-If the first parameter to C<XMLin()> is undefined, the default searchpath
-will contain only the directory in which the script itself is located.
-Otherwise the default searchpath will be empty.  
-
-=item forcearray => 1 (B<in>)
-
-This option should be set to '1' to force nested elements to be represented
-as arrays even when there is only one.  Eg, with forcearray enabled, this
-XML:
-
-    <opt>
-      <name>value</name>
-    </opt>
-
-would parse to this:
-
-    {
-      'name' => [
-		  'value'
-		]
-    }
-
-instead of this (the default):
-
-    {
-      'name' => 'value'
-    }
-
-This option is especially useful if the data structure is likely to be written
-back out as XML and the default behaviour of rolling single nested elements up
-into attributes is not desirable. 
-
-If you are using the array folding feature, you should almost certainly enable
-this option.  If you do not, single nested elements will not be parsed to
-arrays and therefore will not be candidates for folding to a hash.  (Given that
-the default value of 'keyattr' enables array folding, the default value of this
-option should probably also have been enabled too - sorry).
-
-=item forcearray => [ name(s) ] (B<in>)
-
-This alternative form of the 'forcearray' option allows you to specify a list
-of element names which should always be forced into an array representation,
-rather than the 'all or nothing' approach above.
-
-=item noattr => 1 (B<in+out>)
-
-When used with C<XMLout()>, the generated XML will contain no attributes.
-All hash key/values will be represented as nested elements instead.
-
-When used with C<XMLin()>, any attributes in the XML will be ignored.
-
-=item suppressempty => 1 | '' | undef (B<in>)
-
-This option controls what C<XMLin()> should do with empty elements (no
-attributes and no content).  The default behaviour is to represent them as
-empty hashes.  Setting this option to a true value (eg: 1) will cause empty
-elements to be skipped altogether.  Setting the option to 'undef' or the empty
-string will cause empty elements to be represented as the undefined value or
-the empty string respectively.  The latter two alternatives are a little
-easier to test for in your code than a hash with no keys.
-
-=item cache => [ cache scheme(s) ] (B<in>)
+=item cache => [ cache scheme(s) ] (B<in>) (B<advanced>)
 
 Because loading the B<XML::Parser> module and parsing an XML file can consume a
 significant number of CPU cycles, it is often desirable to cache the output of
@@ -1772,34 +1634,83 @@ scheme uses B<Storable.pm> to perform the copy.
 
 =back
 
-=item keeproot => 1 (B<in+out>)
+Warning! The memory-based caching schemes compare the timestamp on the file to
+the time when it was last parsed.  If the file is stored on an NFS filesystem
+(or other network share) and the clock on the file server is not exactly
+synchronised with the clock where your script is run, updates to the source XML
+file may appear to be ignored.
 
-In its attempt to return a data structure free of superfluous detail and
-unnecessary levels of indirection, C<XMLin()> normally discards the root
-element name.  Setting the 'keeproot' option to '1' will cause the root element
-name to be retained.  So after executing this code:
+=item contentkey => 'keyname' (B<in+out>) (B<seldom used>)
 
-  $config = XMLin('<config tempdir="/tmp" />', keeproot => 1)
+When text content is parsed to a hash value, this option let's you specify a
+name for the hash key to override the default 'content'.  So for example:
 
-You'll be able to reference the tempdir as
-C<$config-E<gt>{config}-E<gt>{tempdir}> instead of the default
-C<$config-E<gt>{tempdir}>.
+  XMLin('<opt one="1">Text</opt>', contentkey => 'text')
 
-Similarly, setting the 'keeproot' option to '1' will tell C<XMLout()> that the
-data structure already contains a root element name and it is not necessary to
-add another.
+will parse to:
 
-=item rootname => 'string' (B<out>)
+  { 'one' => 1, 'text' => 'Text' }
 
-By default, when C<XMLout()> generates XML, the root element will be named
-'opt'.  This option allows you to specify an alternative name.
+instead of:
 
-Specifying either undef or the empty string for the rootname option will
-produce XML with no root elements.  In most cases the resulting XML fragment
-will not be 'well formed' and therefore could not be read back in by C<XMLin()>.
-Nevertheless, the option has been found to be useful in certain circumstances.
+  { 'one' => 1, 'content' => 'Text' }
 
-=item forcecontent (B<in>)
+C<XMLout()> will also honour the value of this option when converting a hashref
+to XML.
+
+=item datahandler => code_ref (B<in>) (B<SAX only>)
+
+When you use an B<XML::Simple> object as a SAX handler, it will return a
+'simple tree' data structure in the same format as C<XMLin()> would return.  If
+this option is set (to a subroutine reference), then when the tree is built the
+subroutine will be called and passed two arguments: a reference to the
+B<XML::Simple> object and a reference to the data tree.  The return value from
+the subroutine will be returned to the SAX driver.  (See L<"SAX SUPPORT"> for
+more details).
+
+You can specify 'DataHandler' as a synonym for 'datahandler'.
+
+=item forcearray => 1 (B<in>) (B<IMPORTANT!>)
+
+This option should be set to '1' to force nested elements to be represented
+as arrays even when there is only one.  Eg, with forcearray enabled, this
+XML:
+
+    <opt>
+      <name>value</name>
+    </opt>
+
+would parse to this:
+
+    {
+      'name' => [
+		  'value'
+		]
+    }
+
+instead of this (the default):
+
+    {
+      'name' => 'value'
+    }
+
+This option is especially useful if the data structure is likely to be written
+back out as XML and the default behaviour of rolling single nested elements up
+into attributes is not desirable. 
+
+If you are using the array folding feature, you should almost certainly enable
+this option.  If you do not, single nested elements will not be parsed to
+arrays and therefore will not be candidates for folding to a hash.  (Given that
+the default value of 'keyattr' enables array folding, the default value of this
+option should probably also have been enabled too - sorry).
+
+=item forcearray => [ name(s) ] (B<in>) (B<IMPORTANT!>)
+
+This alternative (and preferred) form of the 'forcearray' option allows you to
+specify a list of element names which should always be forced into an array
+representation, rather than the 'all or nothing' approach above.
+
+=item forcecontent (B<in>) (B<seldom used>)
 
 When C<XMLin()> parses elements which have text content as well as attributes,
 the text content must be represented as a hash value rather than a simple
@@ -1822,49 +1733,177 @@ instead of:
     'y' => { 'a' => 2, 'content' => 'text2' }
   }
 
-=item contentkey => 'keyname' (B<in+out>)
+=item handler => object_ref (B<out>) (B<SAX only>)
 
-When text content is parsed to a hash value, this option let's you specify a
-name for the hash key to override the default 'content'.  So for example:
+Use the 'handler' option to have C<XMLout()> generate SAX events rather than 
+returning a string of XML.  For more details see L<"SAX SUPPORT"> below.
+You can specify 'Handler' as a synonym for 'handler' for compatability with
+the SAX specification.
 
-  XMLin('<opt one="1">Text</opt>', contentkey => 'text')
+Note: the current implementation of this option generates a string of XML
+and uses a SAX parser to translate it into SAX events.  The normal encoding
+rules apply here - your data must be UTF8 encoded unless you specify an 
+alternative encoding via the 'xmldecl' option; and by the time the data reaches
+the handler object, it will be in UTF8 form regardless of the encoding you
+supply.  A future implementation of this option may generate the events 
+directly.
 
-will parse to:
+=item keeproot => 1 (B<in+out>) (B<handy>)
 
-  { 'one' => 1, 'text' => 'Text' }
+In its attempt to return a data structure free of superfluous detail and
+unnecessary levels of indirection, C<XMLin()> normally discards the root
+element name.  Setting the 'keeproot' option to '1' will cause the root element
+name to be retained.  So after executing this code:
 
-instead of:
+  $config = XMLin('<config tempdir="/tmp" />', keeproot => 1)
 
-  { 'one' => 1, 'content' => 'Text' }
+You'll be able to reference the tempdir as
+C<$config-E<gt>{config}-E<gt>{tempdir}> instead of the default
+C<$config-E<gt>{tempdir}>.
 
-C<XMLout()> will also honour the value of this option when converting a hashref
-to XML.
+Similarly, setting the 'keeproot' option to '1' will tell C<XMLout()> that the
+data structure already contains a root element name and it is not necessary to
+add another.
 
-=item xmldecl => 1  or  xmldecl => 'string'  (B<out>)
+=item keyattr => [ list ] (B<in+out>) (B<IMPORTANT!>)
 
-If you want the output from C<XMLout()> to start with the optional XML
-declaration, simply set the option to '1'.  The default XML declaration is:
+This option controls the 'array folding' feature which translates nested
+elements from an array to a hash.  It also controls the 'unfolding' of hashes
+to arrays.
 
-        <?xml version='1.0' standalone='yes'?>
+For example, this XML:
 
-If you want some other string (for example to declare an encoding value), set
-the value of this option to the complete string you require.
+    <opt>
+      <user login="grep" fullname="Gary R Epstein" />
+      <user login="stty" fullname="Simon T Tyson" />
+    </opt>
 
-=item outputfile => <file specifier> (B<out>)
+would, by default, parse to this:
 
-The default behaviour of C<XMLout()> is to return the XML as a string.  If you
-wish to write the XML to a file, simply supply the filename using the
-'outputfile' option.  Alternatively, you can supply an IO handle object instead
-of a filename.
+    {
+      'user' => [
+		  {
+		    'login' => 'grep',
+		    'fullname' => 'Gary R Epstein'
+		  },
+		  {
+		    'login' => 'stty',
+		    'fullname' => 'Simon T Tyson'
+		  }
+		]
+    }
 
-=item noescape => 1 (B<out>)
+If the option 'keyattr => "login"' were used to specify that the 'login'
+attribute is a key, the same XML would parse to:
+
+    {
+      'user' => {
+		  'stty' => {
+			      'fullname' => 'Simon T Tyson'
+			    },
+		  'grep' => {
+			      'fullname' => 'Gary R Epstein'
+			    }
+		}
+    }
+
+The key attribute names should be supplied in an arrayref if there is more
+than one.  C<XMLin()> will attempt to match attribute names in the order
+supplied.  C<XMLout()> will use the first attribute name supplied when
+'unfolding' a hash into an array.
+
+Note 1: The default value for 'keyattr' is ['name', 'key', 'id'].  If you do
+not want folding on input or unfolding on output you must setting this option
+to an empty list to disable the feature.
+
+Note 2: If you wish to use this option, you should also enable the 'forcearray'
+option.  Without 'forcearray', a single nested element will be rolled up into a
+scalar rather than an array and therefore will not be folded (since only arrays
+get folded).
+
+=item keyattr => { list } (B<in+out>) (B<IMPORTANT!>)
+
+This alternative (and preferred) method of specifiying the key attributes
+allows more fine grained control over which elements are folded and on which
+attributes.  For example the option 'keyattr => { package => 'id' } will cause
+any package elements to be folded on the 'id' attribute.  No other elements
+which have an 'id' attribute will be folded at all. 
+
+Note: C<XMLin()> will generate a warning (or a fatal error in L<"STRICT MODE">)
+if this syntax is used and an element which does not have the specified key
+attribute is encountered (eg: a 'package' element without an 'id' attribute, to
+use the example above).  Warnings will only be generated if B<-w> is in force.
+
+Two further variations are made possible by prefixing a '+' or a '-' character
+to the attribute name:
+
+The option 'keyattr => { user => "+login" }' will cause this XML:
+
+    <opt>
+      <user login="grep" fullname="Gary R Epstein" />
+      <user login="stty" fullname="Simon T Tyson" />
+    </opt>
+
+to parse to this data structure:
+
+    {
+      'user' => {
+		  'stty' => {
+			      'fullname' => 'Simon T Tyson',
+			      'login'    => 'stty'
+			    },
+		  'grep' => {
+			      'fullname' => 'Gary R Epstein',
+			      'login'    => 'grep'
+			    }
+		}
+    }
+
+The '+' indicates that the value of the key attribute should be copied rather
+than moved to the folded hash key.
+
+A '-' prefix would produce this result:
+
+    {
+      'user' => {
+		  'stty' => {
+			      'fullname' => 'Simon T Tyson',
+			      '-login'    => 'stty'
+			    },
+		  'grep' => {
+			      'fullname' => 'Gary R Epstein',
+			      '-login'    => 'grep'
+			    }
+		}
+    }
+
+As described earlier, C<XMLout> will ignore hash keys starting with a '-'.
+
+=item noattr => 1 (B<in+out>) (B<handy>)
+
+When used with C<XMLout()>, the generated XML will contain no attributes.
+All hash key/values will be represented as nested elements instead.
+
+When used with C<XMLin()>, any attributes in the XML will be ignored.
+
+=item rootname => 'string' (B<out>) (B<handy>)
+
+By default, when C<XMLout()> generates XML, the root element will be named
+'opt'.  This option allows you to specify an alternative name.
+
+Specifying either undef or the empty string for the rootname option will
+produce XML with no root elements.  In most cases the resulting XML fragment
+will not be 'well formed' and therefore could not be read back in by C<XMLin()>.
+Nevertheless, the option has been found to be useful in certain circumstances.
+
+=item noescape => 1 (B<out>) (B<seldom used>)
 
 By default, C<XMLout()> will translate the characters 'E<lt>', 'E<gt>', '&' and
 '"' to '&lt;', '&gt;', '&amp;' and '&quot' respectively.  Use this option to
 suppress escaping (presumably because you've already escaped the data in some
 more sophisticated manner).
 
-=item nsexpand => 1 (B<in+out>)
+=item nsexpand => 1 (B<in+out>) (B<handy - SAX only>)
 
 This option controls namespace expansion - the translation of element and
 attribute names of the form 'prefix:name' to '{uri}name'.  For example the
@@ -1886,40 +1925,59 @@ C<XMLout> will emit XML which is not well formed.
 I<Note: You must have the XML::NamespaceSupport module installed if you want
 C<XMLout()> to translate URIs back to prefixes>.
 
-=item handler => object_ref (B<out>)
+=item outputfile => <file specifier> (B<out>) (B<handy>)
 
-Use the 'handler' option to have C<XMLout()> generate SAX events rather than 
-returning a string of XML.  For more details see L<"SAX SUPPORT"> below.
-You can specify 'Handler' as a synonym for 'handler' for compatability with
-the SAX specification.
+The default behaviour of C<XMLout()> is to return the XML as a string.  If you
+wish to write the XML to a file, simply supply the filename using the
+'outputfile' option.  Alternatively, you can supply an IO handle object instead
+of a filename.
 
-Note: the current implementation of this option generates a string of XML
-and uses a SAX parser to translate it into SAX events.  The normal encoding
-rules apply here - your data must be UTF8 encoded unless you specify an 
-alternative encoding via the 'xmldecl' option; and by the time the data reaches
-the handler object, it will be in UTF8 form regardless of the encoding you
-supply.  A future implementation of this option may generate the events 
-directly.
-
-=item datahandler => code_ref (B<in>)
-
-When you use an B<XML::Simple> object as a SAX handler, it will return a
-'simple tree' data structure in the same format as C<XMLin()> would return.  If
-this option is set (to a subroutine reference), then when the tree is built the
-subroutine will be called and passed two arguments: a reference to the
-B<XML::Simple> object and a reference to the data tree.  The return value from
-the subroutine will be returned to the SAX driver.  (See L<"SAX SUPPORT"> for
-more details).
-
-You can specify 'DataHandler' as a synonym for 'datahandler'.
-
-=item parseropts => [ XML::Parser Options ] (B<in>)
+=item parseropts => [ XML::Parser Options ] (B<in>) (B<don't use this>)
 
 I<Note: This option is now officially deprecated.  If you find it useful,
 email the author with an example of what you use it for>.
 
 Use this option to specify parameters that should be passed to the constructor
-of the underlying XML::Parser object.
+of the underlying XML::Parser object (which of course assumes you're not using
+SAX).
+
+=item searchpath => [ list ] (B<in>) (B<handy>)
+
+If you pass C<XMLin()> a filename, but the filename include no directory
+component, you can use this option to specify which directories should be
+searched to locate the file.  You might use this option to search first in the
+user's home directory, then in a global directory such as /etc.
+
+If a filename is provided to C<XMLin()> but searchpath is not defined, the
+file is assumed to be in the current directory.
+
+If the first parameter to C<XMLin()> is undefined, the default searchpath
+will contain only the directory in which the script itself is located.
+Otherwise the default searchpath will be empty.  
+
+=item suppressempty => 1 | '' | undef (B<in> + B<out>) (B<handy>)
+
+This option controls what C<XMLin()> should do with empty elements (no
+attributes and no content).  The default behaviour is to represent them as
+empty hashes.  Setting this option to a true value (eg: 1) will cause empty
+elements to be skipped altogether.  Setting the option to 'undef' or the empty
+string will cause empty elements to be represented as the undefined value or
+the empty string respectively.  The latter two alternatives are a little
+easier to test for in your code than a hash with no keys.
+
+The option also controls what C<XMLout()> does with undefined values.
+Setting the option to undef causes undefined values to be output as
+empty elements (rather than empty attributes).
+
+=item xmldecl => 1  or  xmldecl => 'string'  (B<out>) (B<handy>)
+
+If you want the output from C<XMLout()> to start with the optional XML
+declaration, simply set the option to '1'.  The default XML declaration is:
+
+        <?xml version='1.0' standalone='yes'?>
+
+If you want some other string (for example to declare an encoding value), set
+the value of this option to the complete string you require.
 
 
 =back
@@ -1965,12 +2023,52 @@ you wished to provide an alternative routine for escaping character data (the
 escape_value method) or for building the initial parse tree (the build_tree
 method).
 
+=head1 STRICT MODE
+
+If you import the B<XML::Simple> routines like this:
+
+  use XML::Simple qw(:strict);
+
+the following common mistakes will be detected and treated as fatal errors
+
+=over 4
+
+=item *
+
+Failing to explicitly set the keyattr option - if you can't be bothered reading
+about this option, turn it off with: keyattr => []
+
+=item *
+
+Failing to explicitly set the forcearray option - if you can't be bothered
+reading about this option, set it to the safest mode with: forcearray => 1
+
+=item *
+
+Setting forcearray to an array, but failing to list all the elements from the
+keyattr hash.
+
+=item *
+
+Data error - keyattr is set to say { part => 'partnum' } but the XML contains
+one or more E<lt>partE<gt> elements without a 'partnum' attribute (or nested
+element).  Note: if strict mode is not set but -w is, this condition triggers a
+warning.
+
+=item * 
+
+Data error - as above, but value of key attribute (eg: partnum) is not a 
+scalar string (due to nested elements etc).  This will also trigger a warning
+if strict mode is not enabled.
+
+=back
+
 =head1 SAX SUPPORT
 
 From version 1.08_01, B<XML::Simple> includes support for SAX (the Simple API
 for XML) - specifically SAX2. 
 
-In a typical SAX application, an XML Parser (or SAX 'driver') module generates
+In a typical SAX application, an XML parser (or SAX 'driver') module generates
 SAX events (start of element, character data, end of element, etc) as it parses
 an XML document and a 'handler' module processes the events to extract the
 required data.  This simple model allows for some interesting and powerful
@@ -2087,31 +2185,36 @@ its default rules, you can set the package variable to an empty string.
 =item *
 
 If the 'preferred parser' is set to the string 'XML::Parser', then
-B<XML::Parser> will be used (or C<XMLin()> will die if B<XML::Parser> is not
+L<XML::Parser> will be used (or C<XMLin()> will die if L<XML::Parser> is not
 installed).
 
 =item * 
 
 If the 'preferred parser' is set to some other value, then it is assumed to be
-the name of a SAX parser module and is passed to B<XML::SAX::ParserFactory.>
-If B<XML::SAX> is not installed, or the requested parser module is not
+the name of a SAX parser module and is passed to L<XML::SAX::ParserFactory.>
+If L<XML::SAX> is not installed, or the requested parser module is not
 installed, then C<XMLin()> will die.
 
 =item *
 
 If the 'preferred parser' is not defined at all (the normal default
-state), an attempt will be made to load B<XML::SAX>.  If B<XML::SAX> is
+state), an attempt will be made to load L<XML::SAX>.  If L<XML::SAX> is
 installed, then a parser module will be selected according to
-B<XML::SAX::ParserFactory>'s normal rules (which typically means the last SAX
+L<XML::SAX::ParserFactory>'s normal rules (which typically means the last SAX
 parser installed).
 
 =item *
 
 if the 'preferred parser' is not defined and B<XML::SAX> is not
 installed, then B<XML::Parser> will be used.  C<XMLin()> will die if
-B<XML::Parser> is not installed.
+L<XML::Parser> is not installed.
 
 =back
+
+Note: The B<XML::SAX> distribution includes an XML parser written entirely in
+Perl.  It is very portable but it is not very fast.  You should consider
+installing L<XML::LibXML> or L<XML::SAX::Expat> if they are available for your
+platform.
 
 =head1 ERROR HANDLING
 
@@ -2268,31 +2371,60 @@ XML::Simple is not the right tool for your job - check out the next section.
 
 =head1 WHERE TO FROM HERE?
 
-This section is going to be re-written.  It will offer advice on what to do do
-when your parsing needs outgrow the capabilities of B<XML::Simple> (as they
-surely will).  This advice will boil down to a quick explanation of tree versus
-event based parsers and then recommend:
+B<XML::Simple> is able to present a simple API because it makes some
+assumptions on your behalf.  These include:
+
+=over 4
+
+=item *
+
+You're not interested in text content consisting only of whitespace
+
+=item * 
+
+You don't mind that when things get slurped into a hash the order is lost
+
+=item *
+
+You don't want fine-grained control of the formatting of generated XML
+
+=item *
+
+You would never use a hash key that was not a legal XML element name
+
+=item *
+
+You don't need help converting between different encodings
+
+=back
+
+In a serious XML project, you'll probably outgrow these assumptions fairly
+quickly.  This section of the document used to offer some advice on chosing a
+more powerful option.  That advice has now grown into the 'Perl-XML FAQ'
+document which you can find at: L<http://www.perlxml.net/perl-xml-faq.dkb>
+
+The advice in the FAQ boils down to a quick explanation of tree versus
+event based parsers and then recommends:
 
 For event based parsing, use SAX (do not set out to write any new code for 
-XML::Parser's handler API).
+XML::Parser's handler API - it is obselete).
 
 For tree-based parsing, you could choose between the 'Perlish' approach of
-XML::Twig and more standards based DOM implementations - preferably including
+L<XML::Twig> and more standards based DOM implementations - preferably one with
 XPath support.
 
 
 =head1 STATUS
 
-This version (1.08_01) is a beta (development) release.  The current stable
-version is 1.08.  
+This version (2.00) is the current stable version.
 
 =head1 SEE ALSO
 
-B<XML::Simple> requires either B<XML::Parser> or B<XML::SAX>.
+B<XML::Simple> requires either L<XML::Parser> or L<XML::SAX>.
 
-To generate documents with namespaces, B<XML::NamespaceSupport> is required.
+To generate documents with namespaces, L<XML::NamespaceSupport> is required.
 
-The optional caching functions require B<Storable>.
+The optional caching functions require L<Storable>.
 
 =head1 COPYRIGHT 
 

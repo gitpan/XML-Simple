@@ -1,4 +1,4 @@
-# $Id: Makefile.PL,v 1.3 2002/02/05 22:19:18 grantm Exp $
+# $Id: Makefile.PL,v 1.5 2002/12/08 04:06:30 grantm Exp $
 
 use ExtUtils::MakeMaker;
 
@@ -61,11 +61,14 @@ if($fatal) {
 
 WriteMakefile(
     'NAME'          => 'XML::Simple',
-    'VERSION_FROM'  => 'Simple.pm',
+    'VERSION_FROM'  => 'lib/XML/Simple.pm',
     'DISTNAME'      => 'XML-Simple',
+    'PREREQ_PM'     => {
+                         Test::Simple          => 0.41,
+                       },
     'dist'          => { COMPRESS => 'gzip --best', SUFFIX => 'gz' },
     ($] >= 5.005 ? (
-      'AUTHOR'        => 'Grant McLean <grantm@web.co.nz>',
-      'ABSTRACT_FROM' => 'Simple.pm',
+      'AUTHOR'        => 'Grant McLean <grantm@cpan.org>',
+      'ABSTRACT_FROM' => 'lib/XML/Simple.pm',
     ) : () )
 );
