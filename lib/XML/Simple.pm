@@ -1,4 +1,4 @@
-# $Id: Simple.pm,v 1.17 2004/02/29 09:48:17 grantm Exp $
+# $Id: Simple.pm,v 1.18 2004/03/02 08:18:02 grantm Exp $
 
 package XML::Simple;
 
@@ -53,7 +53,7 @@ use vars qw($VERSION @ISA @EXPORT @EXPORT_OK $PREFERRED_PARSER);
 @ISA               = qw(Exporter);
 @EXPORT            = qw(XMLin XMLout);
 @EXPORT_OK         = qw(xml_in xml_out);
-$VERSION           = '2.10';
+$VERSION           = '2.11';
 $PREFERRED_PARSER  = undef;
 
 my $StrictMode     = 0;
