@@ -1,7 +1,7 @@
 use strict;
 use IO::File;
 
-BEGIN { print "1..161\n"; }
+BEGIN { print "1..164\n"; }
 
 my $t = 1;
 
@@ -532,7 +532,7 @@ ok(125, $@ =~ /Unrecognised option:/);
 
 $_ = eval { XMLout($hashref1, 'bogus') };
 ok(126, !defined($_));
-ok(127, $@ =~ /Options must be name => value pairs .odd number supplied./);
+ok(127, $@ =~ /Options must be name=>value pairs .odd number supplied./);
 
 
 # Test output to file
@@ -617,7 +617,8 @@ $ref = {
 
 $_ = XMLout($ref, keyattr => { 'car' => 'license', 'option' => 'pn' });
 ok(136, DataCompare($ref,                                      # Parses back OK 
-          XMLin($_, forcearray => 1, keyattr => { 'car' => 'license', 'option' => 'pn' })));
+      XMLin($_, forcearray => 1,
+	    keyattr => { 'car' => 'license', 'option' => 'pn' })));
 ok(137, s{\s*make="GM"}{gm}s);
 ok(138, s{\s*id="2"}{gm}s);
 ok(139, s{\s*license="LW1804"}{gm}s);
@@ -643,6 +644,41 @@ ok(158, s{\s*<option333}{<option}s);
 ok(159, s{\s*<carfordfordford>\s*(<option\s*/>\s*){3}</car>}{CAR}s);
 ok(160, s{^<(\w+)\s*>\s*CAR\s*CAR\s*</\1>$}{}s);
 
+
+# Test the keeproot option
+
+$ref = {
+  'seq' => {
+    'name' => 'alpha',
+    'alpha' => [ 1, 2, 3 ]
+  }
+};
+
+my $xml1 = XMLout($ref, rootname => 'sequence');
+my $xml2 = XMLout({ 'sequence' => $ref }, keeproot => 1);
+
+ok(161, DataCompare($xml1, $xml2));
+
+
+# Test that items with text content are output correctly
+# Expect: <opt one="1">text</opt>
+
+$ref = { 'one' => 1, 'content' => 'text' };
+
+$_ = XMLout($ref);
+
+ok(162, m{^\s*<opt\s+one="1">text</opt>\s*$}s);
+
+
+# Even if we change the default value for the 'contentkey' option
+
+$ref = { 'one' => 1, 'text_content' => 'text' };
+
+$_ = XMLout($ref, contentkey => 'text_content');
+
+ok(163, m{^\s*<opt\s+one="1">text</opt>\s*$}s);
+
+
 # 'Stress test' with a data structure that maps to several thousand elements.
 # Unfold elements with XMLout() and fold them up again with XMLin()
 
@@ -658,7 +694,7 @@ $xml = XMLout($opt1, keyattr => { TypeA => 'alpha', TypeB => 'beta', Record => '
 
 my $opt2 = XMLin($xml, keyattr => { TypeA => 'alpha', TypeB => 'beta', Record => 'id' }, forcearray => 1);
 
-ok(161, DataCompare($opt1, $opt2));
+ok(164, DataCompare($opt1, $opt2));
 
 exit(0);
 

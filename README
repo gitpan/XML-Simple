@@ -1,7 +1,6 @@
 DESCRIPTION
 
-  XML::Simple slurps an XML formatted config file into a hashref
-  (or 'unslurps' a hashref out to an XML file).
+  XML::Simple - Trivial API for reading and writing XML (esp config files)
 
 
 PREREQUISITES
@@ -33,11 +32,18 @@ BUILDING/INSTALLING
 
 STATUS
 
-  This version (1.03) is the current stable release.  This version is
+  This version (1.04) is the current stable release.  This version is
   believed to be thread-safe (the faulty locking code from 1.00 which was
-  removed in 1.01 has been fixed).
+  removed in 1.01 was fixed in 1.03).
 
   Please send any feedback to the author: grantm@web.co.nz
+
+
+NEW IN THIS RELEASE
+
+  - New object oriented interface (optional)
+  - New options: keeproot and contentkey
+  - Changed options: forcearray now accepts a list of names
 
   See 'Changes' for a detailed history.
 

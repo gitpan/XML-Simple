@@ -11,6 +11,7 @@ t/2_XMLout.t
 t/3_Storable.t
 t/4_MemShare.t
 t/5_MemCopy.t
+t/6_ObjIntf.t
 t/desertnet.src
 t/subdir/test2.xml
 t/srt.xml

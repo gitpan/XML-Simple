@@ -13,7 +13,7 @@ unless(-e $XMLFile) {
 }
 
 
-print "1..46\n";
+print "1..50\n";
 
 my $t = 1;
 
@@ -100,8 +100,8 @@ sub DataCompare {
 
 eval "use XML::Simple;";
 ok(1, !$@);                       # Module compiled OK
-unless($XML::Simple::VERSION eq '1.03') {
-  print STDERR "WARNING: XML::Simple::VERSION = $XML::Simple::VERSION (expected 1.03)...";
+unless($XML::Simple::VERSION eq '1.04') {
+  print STDERR "Warning: XML::Simple::VERSION = $XML::Simple::VERSION (expected 1.04)...";
 }
 
 
@@ -396,12 +396,23 @@ $opt = XMLin($xml, forcearray => 1, keyattr => { 'car' => '+license', 'option' =
 ok(23, DataCompare($opt, $target));
 
 
+# Make sure that the root element name is preserved if we ask for it
+
+$target = XMLin("<opt>$xml</opt>", forcearray => 1,
+                keyattr => { 'car' => '+license', 'option' => '-pn' });
+
+$opt    = XMLin(      $xml,        forcearray => 1, keeproot => 1,
+                keyattr => { 'car' => '+license', 'option' => '-pn' });
+
+ok(24, DataCompare($opt, $target));
+
+
 # Try parsing a named external file
 
 $opt = eval{ XMLin($XMLFile); };
-ok(24, !$@);                                  # XMLin didn't die
+ok(25, !$@);                                  # XMLin didn't die
 print STDERR $@ if($@);
-ok(25, DataCompare($opt, {
+ok(26, DataCompare($opt, {
   location => 't/test1.xml'
 }));
 
@@ -410,8 +421,8 @@ ok(25, DataCompare($opt, {
 
 $opt = eval { XMLin(); };
 print STDERR $@ if($@);
-ok(26, !$@);                                  # XMLin didn't die
-ok(27, DataCompare($opt, {
+ok(27, !$@);                                  # XMLin didn't die
+ok(28, DataCompare($opt, {
   location => 't/1_XMLin.xml'
 }));
 
@@ -425,8 +436,8 @@ $opt = eval {
 
 };
 print STDERR $@ if($@);
-ok(28, !$@);                                  # XMLin didn't die
-ok(29, DataCompare($opt, { location => 't/subdir/test2.xml' }));
+ok(29, !$@);                                  # XMLin didn't die
+ok(30, DataCompare($opt, { location => 't/subdir/test2.xml' }));
 
 
 # Ensure we get expected result if file does not exist
@@ -434,8 +445,8 @@ ok(29, DataCompare($opt, { location => 't/subdir/test2.xml' }));
 $opt = eval {
   XMLin('bogusfile.xml', searchpath => [qw(. ./t)] ); # should 'die'
 };
-ok(30, !defined($opt));                          # XMLin failed
-ok(31, $@ =~ /Could not find bogusfile.xml in/); # with the expected message
+ok(31, !defined($opt));                          # XMLin failed
+ok(32, $@ =~ /Could not find bogusfile.xml in/); # with the expected message
 
 
 # Try parsing from an IO::Handle 
@@ -444,8 +455,8 @@ my $fh = new IO::File;
 $XMLFile = File::Spec->catfile('t', '1_XMLin.xml');  # t/1_XMLin.xml
 $fh->open($XMLFile);
 $opt = XMLin($fh);
-ok(32, 1);                                      # XMLin didn't die
-ok(33, $opt->{location}, 't/1_XMLin.xml');      # and it parsed the right file
+ok(33, 1);                                      # XMLin didn't die
+ok(34, $opt->{location}, 't/1_XMLin.xml');      # and it parsed the right file
 
 
 # Confirm anonymous array folding works in general
@@ -463,7 +474,7 @@ $opt = XMLin(q(
     </row>
   </opt>
 ));
-ok(34, DataCompare($opt, {
+ok(35, DataCompare($opt, {
   row => [
 	   [ '0.0', '0.1', '0.2' ],
 	   [ '1.0', '1.1', '1.2' ],
@@ -481,7 +492,7 @@ $opt = XMLin(q{
     <anon>three</anon>
   </opt>
 });
-ok(35, DataCompare($opt, [
+ok(36, DataCompare($opt, [
   qw(one two three)
 ]));
 
@@ -498,7 +509,7 @@ $opt = XMLin(q(
     </anon>
   </opt>
 ));
-ok(36, DataCompare($opt, [
+ok(37, DataCompare($opt, [
   1,
   [
    '2.1', [ '2.2.1', '2.2.2']
@@ -508,20 +519,41 @@ ok(36, DataCompare($opt, [
 
 # Check for the dreaded 'content' attribute
 
-$opt = XMLin(q(
+$xml = q(
   <opt>
     <item>text<nested key="value" /></item>
   </opt>
-));
-ok(37, DataCompare($opt, {
+);
+
+$opt = XMLin($xml);
+ok(38, DataCompare($opt, {
   item => {
 	    content => 'text',
-	    nested  => {
-		         key => 'value'
-	               }
+	    nested  => { key => 'value' }
           }
 }));
 
+
+# And check that we can change its name if required
+
+$opt = XMLin($xml, contentkey => 'text_content');
+ok(39, DataCompare($opt, {
+  item => {
+	    text_content => 'text',
+	    nested       => { key => 'value' }
+          }
+}));
+
+
+# Check that mixed content parses in the weird way we expect
+
+$xml = q(<p class="mixed">Text with a <b>bold</b> word</p>);
+
+ok(40, DataCompare(XMLin($xml), {
+  'class'   => 'mixed',
+  'content' => [ 'Text with a ', ' word' ],
+  'b'       => 'bold'
+}));
 
 # Confirm single nested element rolls up into a scalar attribute value
 
@@ -531,7 +563,7 @@ $string = q(
   </opt>
 );
 $opt = XMLin($string);
-ok(38, DataCompare($opt, {
+ok(41, DataCompare($opt, {
   name => 'value'
 }));
 
@@ -539,7 +571,7 @@ ok(38, DataCompare($opt, {
 # Unless 'forcearray' option is specified
 
 $opt = XMLin($string, forcearray => 1);
-ok(39, DataCompare($opt, {
+ok(42, DataCompare($opt, {
   name => [ 'value' ]
 }));
 
@@ -551,7 +583,7 @@ $string = q(<opt>
 </opt>);
 
 $opt = XMLin($string, forcearray => 1);
-ok(40, DataCompare($opt, {
+ok(43, DataCompare($opt, {
   'inner' => { 'one' => { 'value' => 1 } }
 }));
 
@@ -559,20 +591,40 @@ ok(40, DataCompare($opt, {
 # But not without forcearray option specified
 
 $opt = XMLin($string, forcearray => 0);
-ok(41, DataCompare($opt, {
+ok(44, DataCompare($opt, {
   'inner' => { 'name' => 'one', 'value' => 1 } 
+}));
+
+
+# Test advanced features of forcearray
+
+$xml = q(<opt zero="0">
+  <one>i</one>
+  <two>ii</two>
+  <three>iii</three>
+  <three>3</three>
+  <three>c</three>
+</opt>
+);
+
+$opt = XMLin($xml, forcearray => [ 'two' ]);
+ok(45, DataCompare($opt, {
+  'zero' => '0',
+  'one' => 'i',
+  'two' => [ 'ii' ],
+  'three' => [ 'iii', 3, 'c' ]
 }));
 
 
 # Test option error handling
 
 $_ = eval { XMLin('<x y="z" />', rootname => 'fred') }; # not valid for XMLin()
-ok(42, !defined($_));
-ok(43, $@ =~ /Unrecognised option:/);
+ok(46, !defined($_));
+ok(47, $@ =~ /Unrecognised option:/);
 
 $_ = eval { XMLin('<x y="z" />', 'searchpath') };
-ok(44, !defined($_));
-ok(45, $@ =~ /Options must be name => value pairs .odd number supplied./);
+ok(48, !defined($_));
+ok(49, $@ =~ /Options must be name=>value pairs .odd number supplied./);
 
 
 # Now for a 'real world' test, try slurping in an SRT config file
@@ -661,7 +713,7 @@ $target = {
     }
   }
 };
-ok(46, DataCompare($target, $opt));
+ok(50, DataCompare($target, $opt));
 
 
 exit(0);

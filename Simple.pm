@@ -2,8 +2,7 @@ package XML::Simple;
 
 =head1 NAME
 
-XML::Simple - Trivial API for reading and writing XML, optimised for use with
-config files in XML format
+XML::Simple - Trivial API for reading and writing XML (esp config files)
 
 =head1 SYNOPSIS
 
@@ -33,7 +32,7 @@ use vars qw($VERSION @ISA @EXPORT);
 
 @ISA               = qw(Exporter);
 @EXPORT            = qw(XMLin XMLout);
-$VERSION           = '1.03';
+$VERSION           = '1.04';
 
 my %CacheScheme    = (
                        storable => [ \&StorableSave, \&StorableRestore ],
@@ -41,11 +40,14 @@ my %CacheScheme    = (
                        memcopy  => [ \&MemCopySave,  \&MemCopyRestore  ]
 		     );
 
-my $DefaultValues  = 1;  # Used for locking only
-my @KnownOptIn     = qw(keyattr searchpath forcearray cache);
-my @KnownOptOut    = qw(keyattr rootname xmldecl outputfile noescape);
+my $DefaultValues  = 1;       # Used for locking only
+my @KnownOptIn     = qw(keyattr keeproot contentkey
+                        searchpath forcearray cache);
+my @KnownOptOut    = qw(keyattr keeproot contentkey
+                        rootname xmldecl outputfile noescape);
 my @DefKeyAttr     = qw(name key id);
 my $DefRootName    = qq(opt);
+my $DefContentKey  = qq(content);
 my $DefXmlDecl     = qq(<?xml version='1' standalone='yes'?>);
 
 
@@ -69,17 +71,45 @@ BEGIN {
 
 
 ##############################################################################
+# Constructor for optional object interface.
+#
+
+sub new {
+  my $class = shift;
+
+  if(@_ % 2) {
+    croak "Default options must be name=>value pairs (odd number supplied)";
+  }
+
+  my $self = { @_ };
+
+  return(bless($self, $class));
+}
+
+
+##############################################################################
 # Sub: XMLin()
 #
 # Exported routine for slurping XML into a hashref - see pod for info.
+#
+# May be called as object method or as a plain function.
+#
 # Expects one arg for the source XML, optionally followed by a number of
 # name => value option pairs.
 #
 
 sub XMLin {
 
+  # Are we being called as an object method?
+
+  my $DefOpts = undef;
+  if($_[0]  and  UNIVERSAL::isa($_[0], 'XML::Simple')) {
+    $DefOpts = shift;
+  }
+
+
   my $String = shift;
-  my $Options = HandleOptions('in', @_);
+  my $Options = HandleOptions($DefOpts, 'in', @_);
 
   # If no XML or filename supplied, look for scriptname.xml in script directory
 
@@ -129,12 +159,12 @@ sub XMLin {
   # Parsing is required, so let's get on with it
 
   {
-    local($^W) = 0;          # Suppress warning from Expat.pm re File::Spec::load()
-    require XML::Parser;     # We didn't need it until now
+    local($^W) = 0;       # Suppress warning from Expat.pm re File::Spec::load()
+    require XML::Parser;  # We didn't need it until now
   }
 
   my $xp = new XML::Parser(Style => 'Tree');
-  my $tree;
+  my($tree, $ref);
   if($Filename) {
     $tree = $xp->parsefile($Filename);
   }
@@ -143,13 +173,20 @@ sub XMLin {
   }
 
   
-  my $opt = Collapse($Options, @{$tree->[1]});
+  # Now work some magic on the resulting parse tree
 
-  if($Options->{cache}) {
-    $CacheScheme{$Options->{cache}->[0]}->[0]->($opt, $Filename);
+  if($Options->{keeproot}) {
+    $ref = Collapse($Options, {}, @$tree);
+  }
+  else {
+    $ref = Collapse($Options, @{$tree->[1]});
   }
 
-  return($opt);
+  if($Options->{cache}) {
+    $CacheScheme{$Options->{cache}->[0]}->[0]->($ref, $Filename);
+  }
+
+  return($ref);
 }
 
 
@@ -277,9 +314,18 @@ sub MemCopyRestore {
 #
 
 sub XMLout {
+
+  # Are we being called as an object method?
+
+  my $DefOpts = undef;
+  if (UNIVERSAL::isa($_[0], 'XML::Simple')) {
+    $DefOpts = shift;
+  }
+
+
   my $ref = shift;
 
-  my $Options = HandleOptions('out', @_);
+  my $Options = HandleOptions($DefOpts, 'out', @_);
 
 
   # Wrap top level arrayref in a hash
@@ -289,7 +335,17 @@ sub XMLout {
   }
 
 
-  # Make sure no top level attributes if no root elements
+  # Extract rootname from top level hash if keeproot enabled
+
+  if($Options->{keeproot}) {
+    my(@keys) = keys(%$ref);
+    if(@keys == 1) {
+      $ref = $ref->{$keys[0]};
+      $Options->{rootname} = $keys[0];
+    }
+  }
+  
+  # Ensure there are no top level attributes if we're not adding root elements
 
   elsif($Options->{rootname} eq '') {
     if(ref($ref) eq 'HASH') {
@@ -335,14 +391,16 @@ sub XMLout {
 # Sub: HandleOptions()
 #
 # Helper routine for both XMLin() and XMLout().  Both routines handle their
-# first argument and assume all other args are options handled by this
-# routine.  Returns a reference to a hash of options.
+# first argument and assume all other args are options handled by this routine.
+# Returns a reference to a hash of options.
 #
-# This routine expects args to be name => value pairs.  Sets up default
-# values for options not supplied.  Unrecognised options are a fatal error.
+# Expects first argument to be hashref of 'default' options from object
+# constructor (or undef if not OO mode).
 #
-# Options are not intended to be 'sticky' between calls and nothing should
-# be shared between threads.
+# Second argument should be the string 'in' or the string 'out'.
+#
+# Remaining arguments should be name=>value pairs.  Sets up default values
+# for options not supplied.  Unrecognised options are a fatal error.
 #
 
 sub HandleOptions  {
@@ -350,6 +408,9 @@ sub HandleOptions  {
   lock($DefaultValues);
 
 
+  my $DefOpts = shift;
+
+  
   # Determine valid options based on context
 
   my %KnownOpt; 
@@ -365,13 +426,26 @@ sub HandleOptions  {
   # Store supplied options in hashref and weed out invalid ones
 
   if(@_ % 2) {
-    croak "Options must be name => value pairs (odd number supplied)";
+    croak "Options must be name=>value pairs (odd number supplied)";
   }
   my $Options = { @_ };
 
   foreach (keys(%$Options)) {
     croak "Unrecognised option: $_"
       unless($KnownOpt{$_});
+  }
+
+
+  # Merge in values from $DefOpts
+
+  if($DefOpts) {
+    foreach (keys(%KnownOpt)) {
+      unless(exists($Options->{$_})) {
+	if(exists($DefOpts->{$_})) {
+	  $Options->{$_} = $DefOpts->{$_};
+	}
+      }
+    }
   }
 
 
@@ -389,6 +463,11 @@ sub HandleOptions  {
   if($Options->{xmldecl}  and  $Options->{xmldecl} eq '1') {
     $Options->{xmldecl} = $DefXmlDecl;
   }
+
+  unless(exists($Options->{contentkey})) {
+    $Options->{contentkey} = $DefContentKey;
+  }
+
 
   # Cleanups for values assumed to be arrays later
 
@@ -413,6 +492,11 @@ sub HandleOptions  {
     if(ref($Options->{keyattr})) {
       if(ref($Options->{keyattr}) eq 'HASH') {
 
+	# Make a copy so we can mess with it
+
+	$Options->{keyattr} = { %{$Options->{keyattr}} };
+
+	
 	# Convert keyattr => { elem => '+attr' }
 	# to keyattr => { elem => [ 'attr', '+' ] } 
 
@@ -437,6 +521,29 @@ sub HandleOptions  {
   }
   else  {
     $Options->{keyattr} = [ @DefKeyAttr ];
+  }
+
+  
+  # Special cleanup for {forcearray} which could be arrayref or boolean
+  # or left to default to 0
+
+  if(exists($Options->{forcearray})) {
+    if(ref($Options->{forcearray}) eq 'ARRAY') {
+      if(@{$Options->{forcearray}}) {
+        $Options->{forcearray} = { (
+	  map { $_ => 1 } @{$Options->{forcearray}}
+	) };
+      }
+      else {
+        $Options->{forcearray} = 0;
+      }
+    }
+    else {
+      $Options->{forcearray} = ( $Options->{forcearray} ? 1 : 0 );
+    }
+  }
+  else {
+    $Options->{forcearray} = 0;
   }
 
 
@@ -525,10 +632,10 @@ sub Collapse {
     }
     elsif($key eq '0') {
       next if($val =~ m{^\s*$}s);  # Skip all whitespace content
-      if(!%$attr  and  !@_) {      # Short circuit text content in tag with no attr
+      if(!%$attr  and  !@_) {      # Short circuit text in tag with no attr
         return($val);
       }
-      $key = 'content';
+      $key = $Options->{contentkey};
     }
 
 
@@ -546,7 +653,17 @@ sub Collapse {
       $attr->{$key} = [ $val ];
     }
     else {
-      $attr->{$key} = ($Options->{forcearray} ? [ $val ] : $val);
+#      $attr->{$key} = ($Options->{forcearray} ? [ $val ] : $val);
+      if(   ($Options->{forcearray} == 1)
+         || (   (ref($Options->{forcearray}) eq 'HASH')
+	     && ($Options->{forcearray}->{$key})
+	    )
+	) {
+	$attr->{$key} = [ $val ];
+      }
+      else {
+	$attr->{$key} = $val;
+      }
     }
   }
 
@@ -679,6 +796,7 @@ sub ValueToXML {
 
   if(ref($ref) eq 'HASH') {
     my @nested = ();
+    my $text_content = undef;
     if($named) {
       push @result, $indent, '<', $name;
     }
@@ -686,20 +804,36 @@ sub ValueToXML {
     while(($key, $value) = each(%$ref)) {
       next if(substr($key, 0, 1) eq '-');
       if(!ref($value)) {
-	push @result, ' ', $key, '="', 
-	($Options->{noescape} ? $value : EscapeValue($value)), '"';
+	$value = EscapeValue($value) unless($Options->{noescape});
+        if($key eq $Options->{contentkey}) {
+	  $text_content = $value;
+	}
+	else {
+	  push @result, ' ', $key, '="', $value , '"';
+	}
       }
       else {
 	push @nested, ValueToXML($Options, $value, $key, $encoded, "$indent  ");
       }
     }
 
-    if(@nested) {
+    if(@nested  or  $text_content) {
       if($named) {
-        push @result, ">\n", @nested, $indent, '</', $name, ">\n";
+        push @result, ">";
+	if($text_content) {
+	  push @result, $text_content;
+	  $nested[0] =~ s/^\s+// if(@nested);
+	}
+	else {
+	  push @result, "\n";
+	}
+	if(@nested) {
+	  push @result, @nested, $indent;
+	}
+	push @result, '</', $name, ">\n";
       }
       else {
-        push @result, @nested;
+        push @result, @nested;             # Special case if no root elements
       }
     }
     else {
@@ -879,6 +1013,10 @@ case, you might want to read L<"WHERE TO FROM HERE?">.
 The XML::Simple module provides a simple API layer on top of the XML::Parser
 module.  Two functions are exported: C<XMLin()> and C<XMLout()>.
 
+The most common approach is to simply call these two functions directly, but an
+optional object oriented interface (see L<"OPTIONAL OO INTERFACE"> below)
+allows them to be called as methods of an B<XML::Simple> object.
+
 =head2 XMLin()
 
 Parses XML formatted data and returns a reference to a data structure which
@@ -963,10 +1101,16 @@ Refer to L<"WHERE TO FROM HERE?"> if C<XMLout()> is too simple for your needs.
 
 =head1 OPTIONS
 
-Both C<XMLin()> and C<XMLout()> accept optional 'name => value' pairs after the
-initial parameter.  The options listed below are marked with 'B<in>' if they
-are recognised by C<XMLin()> and 'B<out>' if they are recognised by
-C<XMLout()>.
+B<XML::Simple> supports a number of options (in fact as each release of
+B<XML::Simple> adds more options, the module's claim to the name 'Simple'
+becomes more tenuous).  If you find yourself repeatedly having to specify
+the same options, you might like to investigate L<"OPTIONAL OO INTERFACE">
+below.
+
+Both C<XMLin()> and C<XMLout()> expect a single argument followed by a list of
+options.  An option takes the form of a 'name => value' pair.  The options
+listed below are marked with 'B<in>' if they are recognised by C<XMLin()> and
+'B<out>' if they are recognised by C<XMLout()>.
 
 =over 4
 
@@ -1114,8 +1258,19 @@ instead of this (the default):
 
 This option is especially useful if the data structure is likely to be written
 back out as XML and the default behaviour of rolling single nested elements up
-into attributes is not desirable.  It can also be used to force the folding
-of single nested elements (see keyattr option above).
+into attributes is not desirable. 
+
+If you are using the array folding feature, you should almost certainly enable
+this option.  If you do not, single nested elements will not be parsed to
+arrays and therefore will not be candidates for folding to a hash.  (Given that
+the default value of 'keyattr' enables array folding, the default value of this
+option should probably also have been enabled too - sorry).
+
+=item forcearray => [ name(s) ] (B<in>)
+
+This alternative form of the 'forcearray' option allows you to specify a list
+of element names which should always be forced into an array representation,
+rather than the 'all or nothing' approach above.
 
 =item cache => [ cache scheme(s) ] (B<in>)
 
@@ -1161,15 +1316,22 @@ scheme uses B<Storable.pm> to perform the copy.
 
 =back
 
-=item xmldecl => 1  or  xmldecl => 'string'  (B<out>)
+=item keeproot => 1 (B<in+out>)
 
-If you want the output from C<XMLout()> to start with the optional XML
-declaration, simply set the option to '1'.  The default XML declaration is:
+In its attempt to return a data structure free of superfluous detail and
+unnecessary levels of indirection, C<XMLin()> normally discards the root
+element name.  Setting the 'keeproot' option to '1' will cause the root element
+name to be retained.  So after executing this code:
 
-        <?xml version='1' standalone='yes'?>
+  $config = XMLin('<config tempdir="/tmp" />', keeproot => 1)
 
-If you want some other string (for example to declare an encoding value), set
-the value of this option to the complete string you require.
+You'll be able to reference the tempdir as
+C<$config-E<gt>{config}-E<gt>{tempdir}> instead of the default
+C<$config-E<gt>{tempdir}>.
+
+Similarly, setting the 'keeproot' option to '1' will tell C<XMLout()> that the
+data structure already contains a root element name and it is not necessary to
+add another.
 
 =item rootname => 'string' (B<out>)
 
@@ -1180,6 +1342,36 @@ Specifying either undef or the empty string for the rootname option will
 produce XML with no root elements.  In most cases the resulting XML fragment
 will not be 'well formed' and therefore could not be read back in by C<XMLin()>.
 Nevertheless, the option has been found to be useful in certain circumstances.
+
+=item contentkey => 'keyname' (B<in+out>)
+
+When C<XMLin()> parses elements which have text content as well as attributes,
+the text content must be represented as a hash value rather than a simple
+scalar.  This option allows you to specify a name for the hash key to override
+the default 'content'.  So for example:
+
+  XMLin('<opt one="1">Text</opt>', contentkey => 'text')
+
+will parse to:
+
+  { 'one' => 1, 'text' => 'Text' }
+
+instead of:
+
+  { 'one' => 1, 'content' => 'Text' }
+
+C<XMLout()> will also honour the value of this option when converting a hashref
+to XML.
+
+=item xmldecl => 1  or  xmldecl => 'string'  (B<out>)
+
+If you want the output from C<XMLout()> to start with the optional XML
+declaration, simply set the option to '1'.  The default XML declaration is:
+
+        <?xml version='1' standalone='yes'?>
+
+If you want some other string (for example to declare an encoding value), set
+the value of this option to the complete string you require.
 
 =item outputfile => <file specifier> (B<out>)
 
@@ -1196,6 +1388,25 @@ suppress escaping (presumably because you've already escaped the data in some
 more sophisticated manner).
 
 =back
+
+=head1 OPTIONAL OO INTERFACE
+
+The default values for the options described above are unlikely to suit
+everyone.  The object oriented interface allows you to effectively override
+B<XML::Simple>'s defaults with your preferred values.  It works like this:
+
+First create an XML::Simple parser object with your preferred defaults:
+
+  my $xs = new XML::Simple(forcearray => 1, keeproot => 1);
+
+Now call C<XMLin()> or C<XMLout()> as a method of that object:
+
+  my $ref = $xs->XMLin($xml);
+  my $xml = $xs->XMLout($ref);
+
+You can also specify options when you make the method calls and these values
+will be merged with the values specified when the object was created.  Values
+specified in a method call take precedence.
 
 =head1 ERROR HANDLING
 
@@ -1268,8 +1479,8 @@ Repeated nested elements are represented as anonymous arrays:
                   ]
     }
 
-Nested elements with a recognised key attribute are transformed from an array
-into a hash keyed on the value of that attribute:
+Nested elements with a recognised key attribute are transformed (folded) from
+an array into a hash keyed on the value of that attribute:
 
     <opt>
       <person key="jsmith" firstname="Joe" lastname="Smith" />
@@ -1351,6 +1562,11 @@ order.  Normally this would not be a problem because any items for which order
 is important would typically be encoded as elements rather than attributes.
 However B<XML::Simple>'s aggressive slurping and folding algorithms can
 defeat even these techniques.
+
+=item *
+
+XML elements containing both text content and nested elements (eg: marked-up
+text) are not parsed in a useful way.
 
 =item *
 
@@ -1436,7 +1652,7 @@ http://www.perlxml.com/faq/perl-xml-faq.html
 
 =head1 STATUS
 
-This version (1.03) is the current stable version.  
+This version (1.04) is the current stable version.  
 
 =head1 SEE ALSO
 

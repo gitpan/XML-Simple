@@ -1,5 +1,11 @@
 Revision history for Perl extension XML::Simple
 
+1.04  Apr ?? 2000
+	- added (optional) OO interface for changing default options
+	- added 'keeproot' option (requested by Mark D. Anderson - MDA)
+	- added 'contentkey' option (also requested by MDA)
+	- incorporated 'forcearray' as arrayref patch from Andrew McNaughton
+
 1.03  Mar 05 2000
 	- added 'maketest' script for make impaired platforms
 	- yet more cross platform robustness added to test scripts incl workaround
