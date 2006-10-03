@@ -1,5 +1,16 @@
 Revision history for Perl module XML::Simple
 
+2.15  Oct 03 2006
+      - Makefile.PL changes: reject known-bad PurePerl and RTF parser modules;
+        default to XML::SAX::Expat if no parser installed
+      - allow '.' characters in variable names (suggested by Cosimo Streppone)
+      - fix output of undefs in arrayrefs with SuppressEmpty (reported by
+        かんな - Kanna)
+      - tidy up code and docs around lexical filehandle passed to OutputFile
+        (report from Helge Sauer)
+      - reduce memory usage by passing XML strings by reference (patch from
+        Dan Sully)
+
 2.14  Jan 29 2005
       - unlink and lock fixes for VMS (patch from Peter (Stig) Edwards)
 

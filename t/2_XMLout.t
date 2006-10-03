@@ -1,13 +1,12 @@
-# $Id: 2_XMLout.t,v 1.14 2004/11/17 08:36:49 grantm Exp $
+# $Id: 2_XMLout.t,v 1.16 2006/09/19 09:52:34 grantm Exp $
 # vim: syntax=perl
 
 use strict;
 use Test::More;
-use IO::File;
 
 $^W = 1;
 
-plan tests => 196;
+plan tests => 198;
 
 
 ##############################################################################
@@ -352,10 +351,10 @@ like($_, qr{^
 }xs, 'and encodes as expected');
 
 
-# Try encoding a blessed reference and confirm that it fails
+# Try encoding a non array/hash blessed reference and confirm that it fails
 
-$_ = eval { my $ref = new IO::File; XMLout($ref) };
-ok(!defined($_), 'caught blessed reference in data structure');
+$_ = eval { my $ref = bless \*STDERR, 'BogoClass'; XMLout($ref) };
+is($_, undef, 'caught blessed non array/hash reference in data structure');
 like($@, qr/Can't encode a value of type: /, 'with correct error message');
 
 
@@ -531,8 +530,7 @@ unlink($TestFile);
 
 ok(!-e $TestFile);
 eval {
-  my $fh = new IO::File;
-  $fh->open(">$TestFile") || die "$!";
+  open my $fh, '>', $TestFile or die "$!";
   XMLout($hashref1, outputfile => $fh);
   $fh->close();
 };
@@ -685,6 +683,34 @@ $ref = { 'one' => 1, 'two' => undef };
 $_ = XMLout($ref, suppressempty => 1, noattr => 1);
 like($_, qr{^\s*<(\w*)\s*>\s*<one\s*>1</one\s*>\s*</\1\s*>\s*$}s,
   'uninitialiased values successfully skipped');
+
+
+# Try undef in an array
+
+$ref = { a => [ 'one', undef, 'three' ] };
+$_ = XMLout($ref);
+like($_, 
+  qr{
+    ^\s*<(\w*)\s*>
+    \s*<a\s*>one</a\s*>
+    \s*<a\s*></a\s*>
+    \s*<a\s*>three</a\s*>
+    \s*</\1\s*>\s*$
+  }xs,
+  'uninitialiased value in array is empty element');
+
+
+# And again with SuppressEmpty enabled
+
+$_ = XMLout($ref, SuppressEmpty => 1);
+like($_, 
+  qr{
+    ^\s*<(\w*)\s*>
+    \s*<a\s*>one</a\s*>
+    \s*<a\s*>three</a\s*>
+    \s*</\1\s*>\s*$
+  }xs,
+  'uninitialiased value in array is skipped');
 
 
 # Test the keeproot option

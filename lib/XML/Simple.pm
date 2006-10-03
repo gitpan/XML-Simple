@@ -1,4 +1,4 @@
-# $Id: Simple.pm,v 1.23 2005/01/29 04:16:10 grantm Exp $
+# $Id: Simple.pm,v 1.28 2006/10/03 01:07:48 grantm Exp $
 
 package XML::Simple;
 
@@ -53,7 +53,7 @@ use vars qw($VERSION @ISA @EXPORT @EXPORT_OK $PREFERRED_PARSER);
 @ISA               = qw(Exporter);
 @EXPORT            = qw(XMLin XMLout);
 @EXPORT_OK         = qw(xml_in xml_out);
-$VERSION           = '2.14';
+$VERSION           = '2.15';
 $PREFERRED_PARSER  = undef;
 
 my $StrictMode     = 0;
@@ -218,8 +218,8 @@ sub XMLin {
 
   # Parsing is required, so let's get on with it
 
-  my $tree =  $self->build_tree($filename, $string);
-
+  my $tree =  $self->build_tree($filename, ref($string) ? $string : \$string);
+  undef($string);
 
   # Now work some magic on the resulting parse tree
 
@@ -240,20 +240,21 @@ sub XMLin {
 
 
 ##############################################################################
-# Method: build_tree()
+#Method: build_tree()
 #
 # This routine will be called if there is no suitable pre-parsed tree in a
 # cache.  It parses the XML and returns an XML::Parser 'Tree' style data
 # structure (summarised in the comments for the collapse() routine below).
 #
-# XML::Simple requires the services of another module that knows how to
-# parse XML.  If XML::SAX is installed, the default SAX parser will be used,
+# XML::Simple requires the services of another module that knows how to parse
+# XML.  If XML::SAX is installed, the default SAX parser will be used,
 # otherwise XML::Parser will be used.
 #
 # This routine expects to be passed a 'string' as argument 1 or a filename as
-# argument 2.  The 'string' might be a string of XML or it might be a 
-# reference to an IO::Handle.  (This non-intuitive mess results in part from
-# the way XML::Parser works but that's really no excuse).
+# argument 2.  The 'string' might be a string of XML (passed by reference to
+# save memory) or it might be a reference to an IO::Handle.  (This
+# non-intuitive mess results in part from the way XML::Parser works but that's
+# really no excuse).
 #
 
 sub build_tree {
@@ -288,11 +289,11 @@ sub build_tree {
     $tree = $sp->parse_uri($filename);
   }
   else {
-    if(ref($string)) {
+    if(ref($string) && ref($string) ne 'SCALAR') {
       $tree = $sp->parse_file($string);
     }
     else {
-      $tree = $sp->parse_string($string);
+      $tree = $sp->parse_string($$string);
     }
   }
 
@@ -336,7 +337,7 @@ sub build_tree_xml_parser {
     close(XML_FILE);
   }
   else {
-    $tree = $xp->parse($string);
+    $tree = $xp->parse($$string);
   }
 
   return($tree);
@@ -546,7 +547,12 @@ sub XMLout {
 
   if($self->{opt}->{outputfile}) {
     if(ref($self->{opt}->{outputfile})) {
-      return($self->{opt}->{outputfile}->print($xml));
+      my $fh = $self->{opt}->{outputfile};
+      if(UNIVERSAL::isa($fh, 'GLOB') and !UNIVERSAL::can($fh, 'print')) {
+        eval { require IO::Handle; };
+        croak $@ if $@;
+      }
+      return($fh->print($xml));
     }
     else {
       local(*OUT);
@@ -894,7 +900,7 @@ sub collapse {
 
   if(my $var = $self->{_var_values}) {
     while(my($key, $val) = each(%$attr)) {
-      $val =~ s{\$\{(\w+)\}}{ $self->get_var($1) }ge;
+      $val =~ s{\$\{([\w.]+)\}}{ $self->get_var($1) }ge;
       $attr->{$key} = $val;
     }
   }
@@ -1457,6 +1463,7 @@ sub value_to_xml {
 
   elsif(UNIVERSAL::isa($ref, 'ARRAY')) {
     foreach $value (@$ref) {
+      next if !defined($value) and $self->{opt}->{suppressempty};
       if(!ref($value)) {
         push @result,
              $indent, '<', $name, '>',
@@ -2444,6 +2451,10 @@ and later for output using an encoding other than UTF-8, eg:
   open my $fh, '>:encoding(iso-8859-1)', $path or die "open($path): $!";
   XMLout($ref, OutputFile => $fh);
 
+Note, XML::Simple does not require that the object you pass in to the
+OutputFile option inherits from L<IO::Handle> - it simply assumes the object
+supports a C<print> method.
+
 =head2 ParserOpts => [ XML::Parser Options ] I<# in - don't use this>
 
 I<Note: This option is now officially deprecated.  If you find it useful, email
@@ -2540,6 +2551,8 @@ A 'variable' is any text of the form C<${name}> which occurs in an attribute
 value or in the text content of an element.  If 'name' matches a key in the
 supplied hashref, C<${name}> will be replaced with the corresponding value from
 the hashref.  If no matching key is found, the variable will not be replaced.
+Names must match the regex: C<[\w.]+> (ie: only 'word' characters and dots are
+allowed).
 
 =head2 VarAttr => 'attr_name' I<# in - handy>
 
