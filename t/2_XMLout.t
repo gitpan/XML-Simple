@@ -1,4 +1,4 @@
-# $Id: 2_XMLout.t,v 1.16 2006/09/19 09:52:34 grantm Exp $
+# $Id: 2_XMLout.t,v 1.17 2006/10/05 08:28:05 grantm Exp $
 # vim: syntax=perl
 
 use strict;
@@ -6,7 +6,7 @@ use Test::More;
 
 $^W = 1;
 
-plan tests => 198;
+plan tests => 201;
 
 
 ##############################################################################
@@ -869,7 +869,15 @@ $ref = {
 # </opt>
 #
 
-$_ = XMLout($ref, grouptags => {dirs => 'dir'}, noattr => 1);
+$@ = '';
+$_ = eval { XMLout($ref, grouptags => {dirs => 'dirs'}, noattr => 1); };
+ok($@, 'bad GroupTags value was caught');
+like("$@", qr{Bad value in GroupTags: 'dirs' => 'dirs'},
+  'error message looks good');
+
+$@ = '';
+$_ = eval { XMLout($ref, grouptags => {dirs => 'dir'}, noattr => 1); };
+ok(!$@, 'good GroupTags value caused no error');
 
 ok(s{\s*<(prefix)>before</\1>\s*}{ELEM}s, 'prefix OK');
 ok(s{\s*<(suffix)>after</\1>\s*}{ELEM}s,  'suffix OK');

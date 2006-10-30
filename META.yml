@@ -1,7 +1,7 @@
 # http://module-build.sourceforge.net/META-spec.html
 #XXXXXXX This is a prototype!!!  It will change in the future!!! XXXXX#
 name:         XML-Simple
-version:      2.15
+version:      2.16
 abstract:     Easy API to maintain XML (esp config files)
 license:      perl
 author:       Grant McLean <grantm@cpan.org>
