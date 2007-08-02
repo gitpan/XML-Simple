@@ -1,4 +1,4 @@
-# $Id: 1_XMLin.t,v 1.25 2006/10/30 08:28:13 grantm Exp $
+# $Id: 1_XMLin.t,v 1.27 2007/08/02 10:35:40 grantm Exp $
 # vim: syntax=perl
 
 use strict;
@@ -25,9 +25,15 @@ my $last_warning = '';
 $@ = '';
 eval "use XML::Simple;";
 is($@, '', 'Module compiled OK');
-my $version = '2.16';
+my $version = 'unknown';
+if(open my $chg, '<Changes') {
+  while(<$chg>) {
+    last if ($version) = $_ =~ /^([\d\._]+) /;
+  }
+  close($chg);
+}
 unless($XML::Simple::VERSION eq $version) {
-  diag("Warning: XML::Simple::VERSION = $XML::Simple::VERSION (expected $version)");
+  diag("Warning: XML::Simple::VERSION = $XML::Simple::VERSION (Changes version: $version)");
 }
 
 
@@ -1451,7 +1457,7 @@ $target = {
     }
   }
 };
-is_deeply($target, $opt, 'successfully read an SRT config file');
+is_deeply($opt, $target, 'successfully read an SRT config file');
 
 
 exit(0);

@@ -1,4 +1,4 @@
-# $Id: 3_Storable.t,v 1.10 2005/01/29 04:17:42 grantm Exp $
+# $Id: 3_Storable.t,v 1.11 2007/08/02 10:38:22 grantm Exp $
 # vim: syntax=perl
 
 use strict;
@@ -66,6 +66,39 @@ sub CopyFile {
   close(OUT);
 
   return(1);
+}
+
+
+##############################################################################
+# Delete a file - portably
+#
+
+sub DeleteFile {
+  my($Filename) = @_;
+
+  if ('VMS' eq $^O) {
+    1 while (unlink($Filename));
+  } else {
+    unlink($Filename);
+  }
+}
+
+
+##############################################################################
+# Create a file, making sure that its timestamp is newer than another
+# existing file.
+#
+
+sub MakeNewerFile {
+  my($File1, $File2, $CodeRef) = @_;
+
+  my $t0 = (stat($File1))[9];
+  while(1) {
+    unlink($File2);
+    $CodeRef->();
+    return if (stat($File2))[9] > $t0;
+    sleep(1);
+  }
 }
 
 
@@ -146,19 +179,15 @@ is_deeply($opt, $Expected, 'parsed in expected value again');
 $t2 = (stat($CacheFile))[9];
 isnt($t1, $t2, 'and this time the cache timestamp has changed');
 
-if ('VMS' eq $^O) {
-  1 while (unlink($XMLFile));
-} else {
-  unlink($XMLFile);
-}
-ok(! -e $XMLFile, 'deleted the cache file');
+DeleteFile($XMLFile);
+ok(! -e $XMLFile, 'deleted the source file');
 open(FILE, ">$XMLFile");              # Re-create it (empty)
 close(FILE);
 ok(-e $XMLFile, 'recreated the source file');
 is(-s $XMLFile, 0, 'but with nothing in it');
-PassTime((stat($XMLFile))[9]);        # But ensure cache file is newer
-unlink($CacheFile);                   # Seems to be rqd for test on Win32
-Storable::nstore($Expected, $CacheFile);
+MakeNewerFile($XMLFile, $CacheFile, sub { # Make sure cache file is newer
+  Storable::nstore($Expected, $CacheFile);
+});
 $opt = XMLin($XMLFile, cache => 'storable');
 is_deeply($opt, $Expected, 'got the expected data from the cache');
 $t2 = (stat($CacheFile))[9];
