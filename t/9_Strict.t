@@ -1,4 +1,4 @@
-# $Id: 9_Strict.t,v 1.5 2003/05/18 08:43:14 grantm Exp $
+# $Id: 9_Strict.t,v 1.6 2007/08/15 10:36:48 grantm Exp $
 # vim: syntax=perl
 
 use strict;
@@ -6,7 +6,7 @@ use Test::More;
 
 $^W = 1;
 
-plan tests => 38;
+plan tests => 40;
 
 
 ##############################################################################
@@ -89,6 +89,25 @@ eval {
 
 isnt($@, '', 'key attribute missing from names element was a fatal error');
 like($@, qr/(?i)<part> element has no 'partnum' key attribute/,
+  'with the correct error message');
+
+
+# Confirm that non-unique values in key attributes are detected
+
+$xml = q(
+<opt>
+  <part partnum="12345" desc="Thingy" />
+  <part partnum="67890" desc="Wotsit" />
+  <part partnum="12345" desc="Springy" />
+</opt>
+);
+
+eval {
+  $opt = XMLin($xml, keyattr => { part => 'partnum' }, forcearray => 1);
+};
+
+isnt($@, '', 'non-unique key attribute values was a fatal error');
+like($@, qr/(?i)<part> element has non-unique value in 'partnum' key attribute: 12345/,
   'with the correct error message');
 
 
