@@ -1,12 +1,9 @@
-# $Id: 1_XMLin.t,v 1.28 2007/08/15 10:36:48 grantm Exp $
-# vim: syntax=perl
 
 use strict;
+use warnings;
 use Test::More;
 use IO::File;
 use File::Spec;
-
-$^W = 1;
 
 
 # Initialise filenames and check they're there
@@ -42,9 +39,9 @@ unless($XML::Simple::VERSION eq $version) {
 my $opt = XMLin(q(<opt name1="value1" name2="value2"></opt>));
 
 my $expected = {
-		 name1 => 'value1',
-		 name2 => 'value2',
-	       };
+                 name1 => 'value1',
+                 name2 => 'value2',
+               };
 
 ok(1, "XMLin() didn't crash");
 ok(defined($opt), 'and it returned a value');
@@ -55,7 +52,7 @@ is_deeply($opt, $expected, 'matches expectations (attributes)');
 # Now try a slightly more complex one that returns the same value
 
 $opt = XMLin(q(
-  <opt> 
+  <opt>
     <name1>value1</name1>
     <name2>value2</name2>
   </opt>
@@ -71,10 +68,10 @@ $opt = XMLin(q(<opt name1="value1"
 is_deeply($opt, $expected, 'attributes in empty element');
 
 
-# Try something with two lists of nested values 
+# Try something with two lists of nested values
 
 $opt = XMLin(q(
-  <opt> 
+  <opt>
     <name1>value1.1</name1>
     <name1>value1.2</name1>
     <name1>value1.3</name1>
@@ -93,7 +90,7 @@ is_deeply($opt, {
 # Now a simple nested hash
 
 $opt = XMLin(q(
-  <opt> 
+  <opt>
     <item name1="value1" name2="value2" />
   </opt>)
 );
@@ -106,7 +103,7 @@ is_deeply($opt, {
 # Now a list of nested hashes
 
 $opt = XMLin(q(
-  <opt> 
+  <opt>
     <item name1="value1" name2="value2" />
     <item name1="value3" name2="value4" />
   </opt>)
@@ -115,14 +112,14 @@ is_deeply($opt, {
   item => [
             { name1 => 'value1', name2 => 'value2' },
             { name1 => 'value3', name2 => 'value4' }
-	  ]
+          ]
 }, 'repeated child elements give list of hashes');
 
 
 # Now a list of nested hashes transformed into a hash using default key names
 
 my $string = q(
-  <opt> 
+  <opt>
     <item name="item1" attr1="value1" attr2="value2" />
     <item name="item2" attr1="value3" attr2="value4" />
   </opt>
@@ -131,7 +128,7 @@ my $target = {
   item => {
             item1 => { attr1 => 'value1', attr2 => 'value2' },
             item2 => { attr1 => 'value3', attr2 => 'value4' }
-	  }
+          }
 };
 $opt = XMLin($string);
 is_deeply($opt, $target, "array folded on default key 'name'");
@@ -143,7 +140,7 @@ $target = {
   item => [
             {name => 'item1', attr1 => 'value1', attr2 => 'value2' },
             {name => 'item2', attr1 => 'value3', attr2 => 'value4' }
-	  ]
+          ]
 };
 my @cont_key = (contentkey => '-content');
 $opt = XMLin($string, keyattr => [], @cont_key);
@@ -159,7 +156,7 @@ is_deeply($opt, $target, 'still works when keyattr is empty hash');
 # Try the other two default key attribute names
 
 $opt = XMLin(q(
-  <opt> 
+  <opt>
     <item key="item1" attr1="value1" attr2="value2" />
     <item key="item2" attr1="value3" attr2="value4" />
   </opt>
@@ -168,12 +165,12 @@ is_deeply($opt, {
   item => {
             item1 => { attr1 => 'value1', attr2 => 'value2' },
             item2 => { attr1 => 'value3', attr2 => 'value4' }
-	  }
+          }
 }, "folded on default key 'key'");
 
 
 $opt = XMLin(q(
-  <opt> 
+  <opt>
     <item id="item1" attr1="value1" attr2="value2" />
     <item id="item2" attr1="value3" attr2="value4" />
   </opt>
@@ -182,14 +179,14 @@ is_deeply($opt, {
   item => {
             item1 => { attr1 => 'value1', attr2 => 'value2' },
             item2 => { attr1 => 'value3', attr2 => 'value4' }
-	  }
+          }
 }, "folded on default key 'id'");
 
 
 # Similar thing using non-standard key names
 
 my $xml = q(
-  <opt> 
+  <opt>
     <item xname="item1" attr1="value1" attr2="value2" />
     <item xname="item2" attr1="value3" attr2="value4" />
   </opt>);
@@ -198,7 +195,7 @@ $target = {
   item => {
             item1 => { attr1 => 'value1', attr2 => 'value2' },
             item2 => { attr1 => 'value3', attr2 => 'value4' }
-	  }
+          }
 };
 
 $opt = XMLin($xml, keyattr => [qw(xname)], @cont_key);
@@ -235,7 +232,7 @@ $opt = XMLin($xml, key_attr => qw(xname), @cont_key);
 is_deeply($opt, $target, 'key_attr as scalar');
 
 
-# Weird variation, not exactly what we wanted but it is what we expected 
+# Weird variation, not exactly what we wanted but it is what we expected
 # given the current implementation and we don't want to break it accidently
 
 $xml = q(
@@ -290,16 +287,16 @@ $target = {
       'id' => 2,
       'make' => 'GM',
       'option' => {
-	  '9926543-1167' => { 'key' => 1, 'desc' => 'Steering Wheel' }
+          '9926543-1167' => { 'key' => 1, 'desc' => 'Steering Wheel' }
       }
     },
     'SH6673' => {
       'id' => 1,
       'make' => 'Ford',
       'option' => {
-	  '6389733317-12' => { 'key' => 1, 'desc' => 'Electric Windows' },
-	  '3735498158-01' => { 'key' => 2, 'desc' => 'Leather Seats' },
-	  '5776155953-25' => { 'key' => 3, 'desc' => 'Sun Roof' }
+          '6389733317-12' => { 'key' => 1, 'desc' => 'Electric Windows' },
+          '3735498158-01' => { 'key' => 2, 'desc' => 'Leather Seats' },
+          '5776155953-25' => { 'key' => 3, 'desc' => 'Sun Roof' }
       }
     }
   }
@@ -318,8 +315,8 @@ $target = {
       'id' => 2,
       'make' => 'GM',
       'option' => {
-	  '9926543-1167' => { 'key' => 1, 'desc' => 'Steering Wheel',
-	                      '-pn' => '9926543-1167' }
+          '9926543-1167' => { 'key' => 1, 'desc' => 'Steering Wheel',
+                              '-pn' => '9926543-1167' }
       },
       license => 'LW1804'
     },
@@ -327,12 +324,12 @@ $target = {
       'id' => 1,
       'make' => 'Ford',
       'option' => {
-	  '6389733317-12' => { 'key' => 1, 'desc' => 'Electric Windows',
-	                       '-pn' => '6389733317-12' },
-	  '3735498158-01' => { 'key' => 2, 'desc' => 'Leather Seats',
-	                       '-pn' => '3735498158-01' },
-	  '5776155953-25' => { 'key' => 3, 'desc' => 'Sun Roof',
-	                       '-pn' => '5776155953-25' }
+          '6389733317-12' => { 'key' => 1, 'desc' => 'Electric Windows',
+                               '-pn' => '6389733317-12' },
+          '3735498158-01' => { 'key' => 2, 'desc' => 'Leather Seats',
+                               '-pn' => '3735498158-01' },
+          '5776155953-25' => { 'key' => 3, 'desc' => 'Sun Roof',
+                               '-pn' => '5776155953-25' }
       },
       license => 'SH6673'
     }
@@ -375,7 +372,7 @@ $target = {
   $opt = XMLin($xml, keyattr => { item => 'name' }, @cont_key);
   is_deeply($opt, $target, "did not fold on specific key with non-scalar value");
   isnt($last_warning, '', 'warning issued as expected');
-  like($last_warning, 
+  like($last_warning,
     qr{<item> element has non-scalar 'name' key attribute},
     'text in warning is correct'
   );
@@ -384,7 +381,7 @@ $target = {
   $opt = XMLin($xml, keyattr => [ 'name' ], @cont_key);
   is_deeply($opt, $target, "same again but with keyattr as array");
   isnt($last_warning, '', 'warning issued as expected');
-  like($last_warning, 
+  like($last_warning,
     qr{<item> element has non-scalar 'name' key attribute},
     'text in warning is correct'
   );
@@ -461,7 +458,7 @@ $target = XMLin("<opt>$xml</opt>", forcearray => 1,
                 @cont_key);
 
 $opt    = XMLin(      $xml,        forcearray => 1, keeproot => 1,
-                keyattr => { 'car' => '+license', 'option' => '-pn' }, 
+                keyattr => { 'car' => '+license', 'option' => '-pn' },
                 @cont_key);
 
 is_deeply($opt, $target, 'keeproot option works');
@@ -513,7 +510,7 @@ $opt = eval {
 };
 is($@, '', 'XMLin found file using searchpath');
 is_deeply($opt, {
-  location => 't/subdir/test2.xml' 
+  location => 't/subdir/test2.xml'
 }, 'and contents parsed as expected');
 
 
@@ -547,7 +544,7 @@ $opt = eval {
 is($opt, undef, 'search path ignored when pathname supplied');
 
 
-# Try parsing from an IO::Handle 
+# Try parsing from an IO::Handle
 
 $@ = '';
 my $fh = new IO::File;
@@ -590,9 +587,9 @@ $xml = q{
 
 $expected = {
   row => [
-	   [ '0.0', '0.1', '0.2' ],
-	   [ '1.0', '1.1', '1.2' ],
-	   [ '2.0', '2.1', '2.2' ]
+           [ '0.0', '0.1', '0.2' ],
+           [ '1.0', '1.1', '1.2' ],
+           [ '2.0', '2.1', '2.2' ]
          ]
 };
 
@@ -625,8 +622,8 @@ $opt = XMLin(q(
     <anon>
       <anon>2.1</anon>
       <anon>
-	<anon>2.2.1</anon>
-	<anon>2.2.2</anon>
+        <anon>2.2.1</anon>
+        <anon>2.2.2</anon>
       </anon>
     </anon>
   </opt>
@@ -650,8 +647,8 @@ $xml = q(
 $opt = XMLin($xml);
 is_deeply($opt, {
   item => {
-	    content => 'text',
-	    attr    => 'value' 
+            content => 'text',
+            attr    => 'value'
           }
 }, "'content' key appears as expected");
 
@@ -661,8 +658,8 @@ is_deeply($opt, {
 $opt = XMLin($xml, contentkey => 'text_content');
 is_deeply($opt, {
   item => {
-	    text_content => 'text',
-	    attr         => 'value'
+            text_content => 'text',
+            attr         => 'value'
           }
 }, "'content' key successfully renamed to 'text'");
 
@@ -701,7 +698,7 @@ is_deeply($opt, {
 
 $xml = q(<opt><x y="one">First</x><x y="two">Second</x></opt>);
 $opt = XMLin($xml, forcearray => [ 'x' ], keyattr => {x => 'y'});
-is_deeply($opt, { 
+is_deeply($opt, {
   x => {
     one => { content => 'First'  },
     two => { content => 'Second' },
@@ -715,7 +712,7 @@ $xml = q(<opt><x y="one">First</x><x y="two">Second</x></opt>);
 $opt = XMLin(
   $xml, forcearray => [ 'x' ], keyattr => {x => 'y'}, contentkey => '-content'
 );
-is_deeply($opt, { 
+is_deeply($opt, {
   x => {
     one => 'First',
     two => 'Second',
@@ -780,7 +777,7 @@ is_deeply($opt, {
 
 $opt = XMLin($string, forcearray => 0, @cont_key);
 is_deeply($opt, {
-  'inner' => { 'name' => 'one', 'value' => 1 } 
+  'inner' => { 'name' => 'one', 'value' => 1 }
 }, 'but not if forcearray is turned off');
 
 
@@ -850,7 +847,7 @@ $opt = XMLin($xml, noattr => 1, @cont_key);
 is_deeply($opt, { nest => 'text' }, 'attributes successfully skipped');
 
 
-# And make sure it doesn't screw up array folding 
+# And make sure it doesn't screw up array folding
 
 $xml = q{<opt>
   <item><key>a</key><value>alpha</value></item>
@@ -1012,8 +1009,8 @@ $opt = XMLin($xml, keyattr => {dir => 'name'}, grouptags => {dirs => 'dir'} );
 is_deeply($opt, {
   prefix => 'before',
   dirs   => {
-              first  => { content => '/usr/bin' }, 
-              second => { content => '/usr/local/bin' }, 
+              first  => { content => '/usr/bin' },
+              second => { content => '/usr/local/bin' },
             },
   suffix => 'after',
 }, 'folding and ungrouping work together');
@@ -1031,15 +1028,15 @@ $xml = q(<opt>
 </opt>);
 
 $opt = XMLin($xml,
-  contentkey => '-text', 
-  keyattr    => {dir => 'name'}, 
-  grouptags  => {dirs => 'dir'} 
+  contentkey => '-text',
+  keyattr    => {dir => 'name'},
+  grouptags  => {dirs => 'dir'}
 );
 is_deeply($opt, {
   prefix => 'before',
   dirs   => {
-              first  => '/usr/bin', 
-              second => '/usr/local/bin', 
+              first  => '/usr/bin',
+              second => '/usr/local/bin',
             },
   suffix => 'after',
 }, 'folding, ungrouping and content stripping work together');
@@ -1056,13 +1053,13 @@ $xml = q(<opt>
 </opt>);
 
 $opt = XMLin($xml,
-  contentkey => '-text', 
-  keyattr    => {dir => 'name'}, 
-  grouptags  => {dirs => 'dir'} 
+  contentkey => '-text',
+  keyattr    => {dir => 'name'},
+  grouptags  => {dirs => 'dir'}
 );
 is_deeply($opt, {
   prefix => 'before',
-  dirs   => { name => 'first', text => '/usr/bin'}, 
+  dirs   => { name => 'first', text => '/usr/bin'},
   suffix => 'after',
 }, 'folding without forcearray but with ungrouping fails as expected');
 
@@ -1078,14 +1075,14 @@ $xml = q(<opt>
 </opt>);
 
 $opt = XMLin($xml,
-  contentkey => '-text', 
+  contentkey => '-text',
   forcearray => [ 'dir' ],
-  keyattr    => {dir => 'name'}, 
-  grouptags  => {dirs => 'dir'} 
+  keyattr    => {dir => 'name'},
+  grouptags  => {dirs => 'dir'}
 );
 is_deeply($opt, {
   prefix => 'before',
-  dirs   => {'first' => '/usr/bin'}, 
+  dirs   => {'first' => '/usr/bin'},
   suffix => 'after',
 }, 'folding with forcearray and ungrouping works');
 
@@ -1178,7 +1175,7 @@ $xml = q(<opt>
 </opt>);
 
 $opt = XMLin($xml,
-  contentkey => '-content', 
+  contentkey => '-content',
   varattr    => 'xsvar',
   variables  => { conf_dir => '/etc', log_dir => '/tmp' }
 );
@@ -1221,13 +1218,13 @@ is_deeply($opt, {
 $@ = '';
 $_ = eval { $opt = XMLin($xml, grouptags  => [ 'dir' ]); };
 ok(!defined($_), 'grouptags requires a hash');
-like($@, qr/Illegal value for 'GroupTags' option - expected a hashref/, 
+like($@, qr/Illegal value for 'GroupTags' option - expected a hashref/,
 'with correct error message');
 
 $@ = '';
 $_ = eval { $opt = XMLin($xml, variables  => [ 'dir' ]); };
 ok(!defined($_), 'variables requires a hash');
-like($@, qr/Illegal value for 'Variables' option - expected a hashref/, 
+like($@, qr/Illegal value for 'Variables' option - expected a hashref/,
 'with correct error message');
 
 
@@ -1375,10 +1372,10 @@ $xml = q(<graphics>
   <nav-next value="next.png"/>
 </graphics>);
 
-$opt = XMLin($xml, 
+$opt = XMLin($xml,
   ValueAttr => {
-    'today'    => 'xxx', 
-    'nav-home' => 'yyy', 
+    'today'    => 'xxx',
+    'nav-home' => 'yyy',
     'nav-next' => 'value'
   }
 );

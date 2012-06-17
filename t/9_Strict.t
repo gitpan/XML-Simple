@@ -1,12 +1,9 @@
-# $Id: 9_Strict.t,v 1.6 2007/08/15 10:36:48 grantm Exp $
-# vim: syntax=perl
 
 use strict;
+use warnings;
 use Test::More;
 
-$^W = 1;
-
-plan tests => 40;
+plan tests => 44;
 
 
 ##############################################################################
@@ -38,7 +35,7 @@ eval {
 };
 
 isnt($@, '', 'omitting forcearray was a fatal error');
-like($@, qr/(?i)No value specified for 'forcearray'/, 
+like($@, qr/(?i)No value specified for 'forcearray'/,
   'with the correct error message');
 
 
@@ -211,7 +208,7 @@ eval {
 };
 
 isnt($@, '', 'omitting forcearray was a fatal error');
-like($@, qr/(?i)No value specified for 'forcearray'/, 
+like($@, qr/(?i)No value specified for 'forcearray'/,
   'with the correct error message');
 
 
@@ -337,5 +334,40 @@ like($@, qr/(?i)No value specified for 'keyattr'/,
   'with the correct error message');
 
 
+# Confirm that code in other modules can still call XMLin without having
+# strict mode forced upon them.
+
+$xml = q(<opt name1="value1" name2="value2"></opt>);
+
+eval {
+  $opt = SimpleWrapper::XMLin($xml, keyattr => {});
+};
+
+is($@, '', 'other namespaces do not have strict mode forced upon them');
+
+# Unless those calls explicitly enable strict mode
+
+eval {
+  $opt = SimpleWrapper::XMLin($xml, StrictMode => 1, keyattr => {});
+};
+
+isnt($@, '', 'other namespaces do not have strict mode forced upon them');
+like($@, qr/(?i)No value specified for 'forcearray'/,
+  'with the correct error message');
+
+# And calls in this namespace can turn strict mode off
+
+eval {
+  $opt = XMLin($xml, StrictMode => 0, keyattr => {});
+};
+
+is($@, '', 'other namespaces do not have strict mode forced upon them');
+
 exit(0);
 
+
+package SimpleWrapper;
+
+sub XMLin {
+  XML::Simple::XMLin(@_);
+}

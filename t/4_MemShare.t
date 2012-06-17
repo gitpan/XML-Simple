@@ -1,11 +1,8 @@
-# $Id: 4_MemShare.t,v 1.5 2005/01/29 04:17:42 grantm Exp $
-# vim: syntax=perl
 
 use strict;
+use warnings;
 use Test::More;
 use File::Spec;
-
-$^W = 1;
 
 
 # Initialise filenames and check they're there
@@ -45,7 +42,7 @@ plan tests => 8;
 
 sub CopyFile {
   my($Src, $Dst) = @_;
-  
+
   open(IN, $Src) || return(undef);
   local($/) = undef;
   my $Data = <IN>;
@@ -108,8 +105,8 @@ my $Expected  = {
 
 ok(CopyFile($SrcFile, $XMLFile), 'copied known good source file');
 $t0 = (stat($XMLFile))[9];         # Remember its timestamp
-                                      
-				      # Parse it with caching enabled
+
+                                   # Parse it with caching enabled
 my $opt = XMLin($XMLFile, cache => 'memshare');
 is_deeply($opt, $Expected, 'parsed expected data from file');
 

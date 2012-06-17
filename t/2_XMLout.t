@@ -1,10 +1,7 @@
-# $Id: 2_XMLout.t,v 1.17 2006/10/05 08:28:05 grantm Exp $
-# vim: syntax=perl
 
 use strict;
+use warnings;
 use Test::More;
-
-$^W = 1;
 
 plan tests => 201;
 
@@ -34,7 +31,7 @@ $_ = eval {
   XMLout();
 };
 ok(!defined($_), 'call with no args proves fatal');
-like($@, qr/XMLout\(\) requires at least one argument/, 
+like($@, qr/XMLout\(\) requires at least one argument/,
 'with correct error message');
 
 # Try encoding a scalar value
@@ -154,9 +151,9 @@ like($_, qr{
 # Now try encoding a hash of hashes with key folding disabled
 
 $ref = { country => {
-		      England => { capital => 'London' },
-		      France  => { capital => 'Paris' },
-		      Turkey  => { capital => 'Istanbul' },
+                      England => { capital => 'London' },
+                      France  => { capital => 'Paris' },
+                      Turkey  => { capital => 'Istanbul' },
                     }
        };
 # Expect:
@@ -327,11 +324,11 @@ $_ = eval {
   XMLout($ref);
 };
 ok(!defined($_), 'caught circular data structure');
-like($@, qr/circular data structures not supported/, 
+like($@, qr/circular data structures not supported/,
 'with correct error message');
 
 
-# Try encoding a repetitive (but non-circular) data structure and confirm that 
+# Try encoding a repetitive (but non-circular) data structure and confirm that
 # it does not fail
 
 $_ = eval {
@@ -442,9 +439,9 @@ like($_, qr{
 
 # Try encoding a scalar value
 
-like(XMLout("scalar", rootname => ''),    qr/scalar\s+/s, 
+like(XMLout("scalar", rootname => ''),    qr/scalar\s+/s,
   'encoded scalar with no root element');
-like(XMLout("scalar", rootname => undef), qr/scalar\s+/s, 
+like(XMLout("scalar", rootname => undef), qr/scalar\s+/s,
   'same again but with rootname = undef');
 
 
@@ -550,8 +547,8 @@ $ref = {
   'a'  => 'one',
   '-b' => 'two',
   '-c' => {
-	    'one' => 1,
-	    'two' => 2
+            'one' => 1,
+            'two' => 2
           }
 };
 
@@ -646,7 +643,7 @@ ok(s{<two\s*></two\s*>\s*}{<nnn>}, 'empty hash OK');
 like($_, qr{^\s*<(\w+)\s*>\s*<nnn>\s*<nnn>\s*</\1\s*>\s*$}, 'document OK');
 
 
-# Check undefined values generate warnings 
+# Check undefined values generate warnings
 
 {
   local($^W) = 1;
@@ -656,7 +653,7 @@ like($_, qr{^\s*<(\w+)\s*>\s*<nnn>\s*<nnn>\s*</\1\s*>\s*$}, 'document OK');
   my $expect = qr/^<\w+(\s+one="1"|\s+two=""){2}/;
 
   $_ = XMLout($ref);
-  like($warn, qr/Use of uninitialized value/, 
+  like($warn, qr/Use of uninitialized value/,
     'caught warning re uninitialised value');
   like($_, $expect, 'undef maps to any empty attribute by default');
 
@@ -689,7 +686,7 @@ like($_, qr{^\s*<(\w*)\s*>\s*<one\s*>1</one\s*>\s*</\1\s*>\s*$}s,
 
 $ref = { a => [ 'one', undef, 'three' ] };
 $_ = XMLout($ref);
-like($_, 
+like($_,
   qr{
     ^\s*<(\w*)\s*>
     \s*<a\s*>one</a\s*>
@@ -703,7 +700,7 @@ like($_,
 # And again with SuppressEmpty enabled
 
 $_ = XMLout($ref, SuppressEmpty => 1);
-like($_, 
+like($_,
   qr{
     ^\s*<(\w*)\s*>
     \s*<a\s*>one</a\s*>
@@ -761,7 +758,7 @@ like($_, qr{^\s*<opt\s+one="1">text</opt>\s*$}s, 'even with "-" prefix');
   my $warn = '';
   local $SIG{__WARN__} = sub { $warn = $_[0] };
   $_ = eval {
-    $ref = { 
+    $ref = {
       column => [
         { name => 'title',   content => 'A Title' },
         { name => 'sponsor', content => undef },
@@ -805,7 +802,7 @@ unlike($_, qr{=}s, 'generated document with no attributes');
 is_deeply(XMLin($_), $ref, 'parses ok');
 ok(s{\s*<(attr1)>value1</\1>\s*}{NEST}s, 'scalar 1 mapped ok');
 ok(s{\s*<(attr2)>value2</\1>\s*}{NEST}s, 'scalar 2 mapped ok');
-ok(s{\s*<(nest)>one</\1>\s*<\1>two</\1>\s*<\1>three</\1>}{NEST}s, 
+ok(s{\s*<(nest)>one</\1>\s*<\1>two</\1>\s*<\1>three</\1>}{NEST}s,
 'array mapped ok');
 like($_, qr{^<(\w+)\s*>(NEST\s*){3}</\1>$}s, 'document OK');
 
@@ -925,7 +922,7 @@ like($_, qr{^<(\w+)\s*>ELEMELEM</\1>$}, 'document OK');
 
 $ref = {
   dirs   => {
-              first   => { content => '/usr/bin'       }, 
+              first   => { content => '/usr/bin'       },
               second  => { content => '/usr/local/bin' },
             },
 };
@@ -940,7 +937,7 @@ $ref = {
 # </opt>
 #
 
-$_ = XMLout($ref, 
+$_ = XMLout($ref,
   grouptags => {dirs => 'dir'}, keyattr => {dir => 'name'},
 );
 
@@ -966,8 +963,8 @@ $ref = {
 # </opt>
 #
 
-$_ = XMLout($ref, 
-  grouptags => {dirs => 'dir'}, keyattr => {dir => 'name'}, 
+$_ = XMLout($ref,
+  grouptags => {dirs => 'dir'}, keyattr => {dir => 'name'},
   contentkey => '-content'
 );
 
@@ -1034,9 +1031,9 @@ like($_, qr{
 # Try the 'AttrIndent' option (assume NoSort defaults to off)
 
 $ref = {
-  beta => '2', 
-  gamma => '3', 
-  alpha => '1', 
+  beta => '2',
+  gamma => '3',
+  alpha => '1',
   colours => {
     red => '#ff0000',
     green => '#00ff00',
@@ -1085,7 +1082,7 @@ is($_, qq(<opt>\n) .
 $ref = XMLin($xml, KeyAttr => {test => 'vegetable', box => 'size'});
 
 $_ = XMLout($ref,
-  RootName => 'opt', 
+  RootName => 'opt',
   KeyAttr => {test => 'vegetable', box => 'size'}
 );
 
@@ -1170,7 +1167,7 @@ like($xml, qr{
 
 SKIP: {
     skip "Perl 5.6 or better required", 4 unless($] >= 5.006);
-    
+
     $ref = { euro => "\x{20AC}", nbsp => "\x{A0}" };
 
     $xml = XMLout($ref);   # Default: no numeric escaping

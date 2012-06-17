@@ -1,12 +1,9 @@
-# $Id: 8_Namespaces.t,v 1.7 2004/04/05 09:12:51 grantm Exp $
-# vim: syntax=perl
 
 use strict;
+use warnings;
 use Test::More;
 use File::Spec;
 use IO::File;
-
-$^W = 1;
 
 
 eval { require XML::SAX; };
@@ -35,7 +32,7 @@ plan tests => 8;
 
 sub CopyFile {
   my($Src, $Dst) = @_;
-  
+
   open(IN, $Src) || return(undef);
   local($/) = undef;
   my $Data = <IN>;

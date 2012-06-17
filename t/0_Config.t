@@ -1,5 +1,3 @@
-# $Id: 0_Config.t,v 1.6 2003/05/20 08:50:10 grantm Exp $
-# vim: syntax=perl
 
 use strict;
 use Test::More tests => 1;

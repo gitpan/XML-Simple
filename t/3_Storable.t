@@ -1,11 +1,8 @@
-# $Id: 3_Storable.t,v 1.11 2007/08/02 10:38:22 grantm Exp $
-# vim: syntax=perl
 
 use strict;
+use warnings;
 use Test::More;
 use File::Spec;
-
-$^W = 1;
 
 
 eval { require Storable; };
@@ -55,7 +52,7 @@ plan tests => 23;
 
 sub CopyFile {
   my($Src, $Dst) = @_;
-  
+
   open(IN, $Src) || return(undef);
   local($/) = undef;
   my $Data = <IN>;
