@@ -23,9 +23,10 @@ my %WriteMakefileArgs = (
   'NAME' => 'XML::Simple',
   'PREREQ_PM' => {
     'XML::NamespaceSupport' => '1.04',
-    'XML::SAX' => '0.15'
+    'XML::SAX' => '0.15',
+    'XML::SAX::Expat' => '0'
   },
-  'VERSION' => '2.19_01',
+  'VERSION' => '2.19_02',
   'test' => {
     'TESTS' => 't/*.t'
   }

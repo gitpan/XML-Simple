@@ -1,6 +1,6 @@
 package XML::Simple;
 BEGIN {
-  $XML::Simple::VERSION = '2.19_01';
+  $XML::Simple::VERSION = '2.19_02';
 }
 
 =head1 NAME
