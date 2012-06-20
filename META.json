@@ -33,7 +33,7 @@
          }
       }
    },
-   "release_status" : "testing",
+   "release_status" : "stable",
    "resources" : {
       "repository" : {
          "type" : "git",
@@ -41,6 +41,6 @@
          "web" : "http://github.com/grantm/xml-simple"
       }
    },
-   "version" : "2.19_02"
+   "version" : "2.20"
 }
 

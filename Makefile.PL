@@ -26,7 +26,7 @@ my %WriteMakefileArgs = (
     'XML::SAX' => '0.15',
     'XML::SAX::Expat' => '0'
   },
-  'VERSION' => '2.19_02',
+  'VERSION' => '2.20',
   'test' => {
     'TESTS' => 't/*.t'
   }

@@ -1,6 +1,6 @@
 package XML::Simple;
 BEGIN {
-  $XML::Simple::VERSION = '2.19_02';
+  $XML::Simple::VERSION = '2.20';
 }
 
 =head1 NAME
@@ -997,7 +997,7 @@ sub collapse {
 
   my $attr  = shift;
   if($self->{opt}->{noattr}) {                    # Discard if 'noattr' set
-    $attr = {};
+    $attr = $self->new_hashref;
   }
   elsif($self->{opt}->{normalisespace} == 2) {
     while(my($key, $value) = each %$attr) {
@@ -1032,6 +1032,7 @@ sub collapse {
   while(@_) {
     $key = shift;
     $val = shift;
+    $val = '' if not defined $val;
 
     if(ref($val)) {
       $val = $self->collapse(@$val);
@@ -1258,7 +1259,7 @@ sub array_to_hash {
           if($self->{opt}->{normalisespace} == 1);
         $self->die_or_warn("<$name> element has non-unique value in '$key' key attribute: $val")
           if(exists($hashref->{$val}));
-        $hashref->{$val} = { %{$arrayref->[$i]} };
+        $hashref->{$val} = $self->new_hashref( %{$arrayref->[$i]} );
         $hashref->{$val}->{"-$key"} = $hashref->{$val}->{$key} if($flag eq '-');
         delete $hashref->{$val}->{$key} unless($flag eq '+');
       }
@@ -1291,7 +1292,7 @@ sub array_to_hash {
             if($self->{opt}->{normalisespace} == 1);
           $self->die_or_warn("<$name> element has non-unique value in '$key' key attribute: $val")
             if(exists($hashref->{$val}));
-          $hashref->{$val} = { %{$arrayref->[$i]} };
+          $hashref->{$val} = $self->new_hashref( %{$arrayref->[$i]} );
           delete $hashref->{$val}->{$key};
           next ELEMENT;
         }
@@ -1465,7 +1466,9 @@ sub value_to_xml {
       $ref = $self->copy_hash($ref);
       while(my($key, $val) = each %$ref) {
         if($self->{opt}->{grouptags}->{$key}) {
-          $ref->{$key} = { $self->{opt}->{grouptags}->{$key} => $val };
+          $ref->{$key} = $self->new_hashref(
+            $self->{opt}->{grouptags}->{$key} => $val
+          );
         }
       }
     }
@@ -1558,7 +1561,9 @@ sub value_to_xml {
            and $self->{opt}->{valueattr}
            and $self->{opt}->{valueattr}->{$key}
         ) {
-          $value = { $self->{opt}->{valueattr}->{$key} => $value };
+          $value = $self->new_hashref(
+            $self->{opt}->{valueattr}->{$key} => $value
+          );
         }
 
         if(ref($value)  or  $self->{opt}->{noattr}) {
